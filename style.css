@@ -28,9 +28,25 @@ img { user-select: none; -webkit-user-drag: none; }
 
 body::before { content: ""; position: fixed; inset: 0; background: radial-gradient(ellipse at 30% 40%, rgba(10, 11, 15, .35), rgba(6, 6, 9, .72)); pointer-events: none; z-index: 0; }
 .app { position: relative; z-index: 1; }
+/* Animated background: the picture breathes and drifts slowly, a light sweep passes, sparks float up (app.js) */
+.bgimg { position: fixed; inset: -4%; z-index: -2; pointer-events: none;
+  background: url("assets/bg.png") center top / cover no-repeat;
+  animation: bgdrift 70s ease-in-out infinite alternate; will-change: transform; }
+.bgimg::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(232, 182, 74, .07) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
+  animation: bgsweep 14s linear infinite; }
+#bgfx { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+body::before { z-index: -1; }
+@keyframes bgdrift {
+  0% { transform: scale(1) translate(0, 0); }
+  50% { transform: scale(1.05) translate(-1.2%, .8%); }
+  100% { transform: scale(1.03) translate(1%, -1%); }
+}
+@keyframes bgsweep { 0% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
+@media (prefers-reduced-motion: reduce) { .bgimg, .bgimg::after { animation: none; } }
 body {
   min-height: 100vh;
-  background: #0c0d11 url("assets/bg.png") center top / cover fixed;
+  background: transparent;
   color: var(--text);
   font-family: "Roboto", "Segoe UI", sans-serif;
   font-size: 14px;

@@ -606,6 +606,11 @@ function fmtShort(iso) {
 }
 
 const isDefaultWeapon = (n) => !n || /^(signature weapon|weapon)$/i.test(String(n).trim());
+/* Signature weapon name for a resonator (data.js SIGNATURE), or "" */
+function signatureOf(resName) {
+  const c = resName && findResonator(resName);
+  return (c && SIGNATURE[c.n]) || "";
+}
 
 function renderGoals(ev) {
   const box = $("#goals");
@@ -615,7 +620,8 @@ function renderGoals(ev) {
     const prev = og[i - 1];
     const canMove = prev && prev.end === x.end && (prev.g.type === "weapon") === isW;
     const gtxt = x.guaranteed ? `<span class="good">guaranteed</span>` : `${x.missPulls} pulls short of a guarantee`;
-    const img = isW && gl.for && isDefaultWeapon(gl.name) ? gl.for : gl.name;
+    const sig = isW && gl.for && isDefaultWeapon(gl.name) ? signatureOf(gl.for) : "";
+    const img = isW && gl.for && isDefaultWeapon(gl.name) ? (sig || gl.for) : gl.name;
     const rc = findResonator(isW ? gl.for : gl.name);
     return `<div class="goal">
       <div class="card"${rc ? ` style="--el:${EL_COLOR[rc.e]}"` : ""}>
@@ -624,7 +630,7 @@ function renderGoals(ev) {
         <div class="num">${i + 1}</div>
         <img class="type" src="assets/${isW ? "ic_sword" : "ic_person"}.png" alt="">
         <div class="tools">${canMove ? `<button class="mv" data-mv="${idx}" title="Pull earlier" aria-label="Pull earlier"></button>` : ""}<button class="rm" data-rm="${idx}" title="Remove" aria-label="Remove"></button></div>
-        <div class="nm">${esc(gl.name || (isW ? "Weapon" : "Resonator"))}${isW && gl.for ? `<small>for ${esc(gl.for)}</small>` : ""}</div>
+        <div class="nm">${esc(sig || gl.name || (isW ? "Weapon" : "Resonator"))}${isW && gl.for ? `<small>for ${esc(gl.for)}</small>` : ""}</div>
       </div>
       <button class="gend" data-edit="${idx}" title="Change target or banner end">${endLabel(x.end)}</button>
       <div class="gfoot">
@@ -699,6 +705,7 @@ function fillNameList(t) {
     for (const k of ["2", "4"]) for (const f of history?.pools?.[k]?.fives || []) names.add(f.name);
     for (const g of plan.goals || []) if (g.type === "weapon" && !isDefaultWeapon(g.name)) names.add(g.name);
     for (const n of WEAPON_NAMES) names.add(n);
+    for (const n of Object.values(SIGNATURE)) names.add(n);
   } else {
     for (const c of RESONATORS) if (c.r === 5) names.add(c.n);
     for (const f of images?.cats?.resonators?.files || []) names.add(f.file.replace(/\.[^.]+$/, ""));
@@ -1900,3 +1907,53 @@ async function init() {
 }
 
 init();
+
+/* ---------------------------------------------------------------- Animated background
+   Slowly drifting gold sparks over the background picture. Off when the system asks for reduced motion. */
+(function bgSparks() {
+  const cv = document.getElementById("bgfx");
+  if (!cv || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const ctx = cv.getContext("2d");
+  let w = 0, h = 0, dpr = 1, parts = [], last = 0;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  function spawn(p, anyY) {
+    p.x = rnd(0, w); p.y = anyY ? rnd(0, h) : h + 10;
+    p.s = rnd(1.5, 4.5); p.v = rnd(6, 22); p.dx = rnd(-6, 6);
+    p.a = rnd(.25, .9); p.tw = rnd(0, Math.PI * 2); p.tws = rnd(.6, 2.2); p.cross = Math.random() < .18;
+    return p;
+  }
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    w = innerWidth; h = innerHeight;
+    cv.width = w * dpr; cv.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const n = Math.round(Math.min(70, w * h / 22000));
+    while (parts.length < n) parts.push(spawn({}, true));
+    parts.length = n;
+  }
+  function frame(t) {
+    const dt = Math.min(.05, (t - last) / 1000 || 0); last = t;
+    ctx.clearRect(0, 0, w, h);
+    for (const p of parts) {
+      p.y -= p.v * dt; p.x += p.dx * dt; p.tw += p.tws * dt;
+      if (p.y < -10 || p.x < -10 || p.x > w + 10) spawn(p, false);
+      const a = p.a * (.55 + .45 * Math.sin(p.tw));
+      ctx.globalAlpha = a;
+      if (p.cross) {            // thin "+" like the ones printed in the background
+        ctx.strokeStyle = "#cfc8b4"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(p.x - p.s * 2, p.y); ctx.lineTo(p.x + p.s * 2, p.y);
+        ctx.moveTo(p.x, p.y - p.s * 2); ctx.lineTo(p.x, p.y + p.s * 2); ctx.stroke();
+      } else {                  // small gold diamond
+        ctx.fillStyle = "#e8b64a";
+        ctx.beginPath(); ctx.moveTo(p.x, p.y - p.s); ctx.lineTo(p.x + p.s * .7, p.y);
+        ctx.lineTo(p.x, p.y + p.s); ctx.lineTo(p.x - p.s * .7, p.y); ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (!document.hidden) requestAnimationFrame(frame);
+  }
+  addEventListener("resize", resize);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { last = performance.now(); requestAnimationFrame(frame); } });
+  resize();
+  requestAnimationFrame(frame);
+})();
