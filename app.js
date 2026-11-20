@@ -48,6 +48,7 @@ const PAGES = {
   builds: ["Builds", "Weapons, echoes and stats"],
   history: ["History", "Convene Record"],
   images: ["Images", "Your images and import"],
+  settings: ["Settings", "Performance and display"],
 };
 
 let plan = structuredClone(DEFAULT_PLAN);
@@ -481,6 +482,7 @@ function showPage(p) {
   try { localStorage.setItem("wuwaPage", p); } catch (e) { /* ignore */ }
   if (p === "images") renderImagesPage();
   if (p === "builds") renderBuilds();
+  if (p === "settings" && window.wuwaBg) window.wuwaBg.stat();
   calculate();
   window.scrollTo({ top: 0 });
 }
@@ -2107,6 +2109,8 @@ init();
     { fps: 30, dpr: 1, dash: false, stars: .5, wave: 6, name: "lighter mode" },
     { fps: 20, dpr: 1, dash: false, stars: .3, wave: 8, name: "minimal mode" },
   ];
+  const FKEY = "wuwaBgFps";
+  let cap = +store.get(FKEY) || 0;                 // 0 = automatic
   let mode = store.get(KEY);
   if (mode !== "on" && mode !== "off") mode = "auto";
   const loadTier = () => { const v = String(store.get(TKEY) || "").split("|"); return Date.now() - (+v[1] || 0) < 864e5 ? Math.max(0, Math.min(3, +v[0] || 0)) : 0; };
@@ -2311,7 +2315,7 @@ init();
     // learn the frame time of the display (60, 120, 144 Hz ...) and draw on every n-th frame: a steady rhythm, no judder
     const g = now - prevRaf; prevRaf = now;
     if (g > 2 && g < 100) { dtWin.push(g); if (dtWin.length >= 40) { rafDt = Math.max(4, Math.min(...dtWin)); dtWin.length = 0; } }
-    const q = TIERS[Math.min(tier, 2)], skip = Math.max(1, Math.floor(1000 / q.fps / rafDt + .4));
+    const q = TIERS[Math.min(tier, 2)], target = cap ? Math.min(q.fps, cap) : q.fps, skip = Math.max(1, Math.floor(1000 / target / rafDt + .4));
     if (++nTick % skip) return;
     const since = now - lastDraw; lastDraw = now;
     const dt = Math.min(.1, since / 1000), t0 = performance.now();
@@ -2347,7 +2351,7 @@ init();
   function stat() {
     const el = document.getElementById("bgStat");
     if (!el || !el.offsetParent) return;           // only while the Display panel is on screen
-    el.textContent = running ? `Now: ${TIERS[Math.min(tier, 2)].name}, ${fpsNow} fps.` : "Now: off, the picture stays still.";
+    el.textContent = running ? `Now: ${TIERS[Math.min(tier, 2)].name}${fpsNow ? ", " + fpsNow + " fps" : ", measuring"}.` : "Now: off, the picture stays still.";
   }
   function note() {
     const el = document.getElementById("bgNote"), sel = document.getElementById("bgMode");
@@ -2370,6 +2374,8 @@ init();
     get tier() { return tier; },
     get loops() { return raf ? 1 : 0; },
     get fps() { return fpsNow; },
+    stat,
+    setFps(v) { cap = +v || 0; store.set(FKEY, cap ? String(cap) : "auto"); resetGov(); },
   };
 
   addEventListener("resize", () => { if (running) resize(false); });
@@ -2381,5 +2387,16 @@ init();
   addEventListener("focus", resetGov);
   const sel = document.getElementById("bgMode");
   if (sel) sel.addEventListener("change", () => window.wuwaBg.set(sel.value));
+  const fsel = document.getElementById("bgFps");
+  if (fsel) { fsel.value = cap ? String(cap) : "auto"; fsel.addEventListener("change", () => window.wuwaBg.setFps(fsel.value)); }
+  apply();
+})();
+
+/* Interface animations (page fade, hover transitions) can be switched off in Settings. */
+(function uiAnim() {
+  const sel = document.getElementById("uiAnim");
+  let v = "on"; try { v = localStorage.getItem("wuwaUiAnim") || "on"; } catch (e) { /* ignore */ }
+  const apply = () => document.documentElement.classList.toggle("noanim", v === "off");
+  if (sel) { sel.value = v; sel.addEventListener("change", () => { v = sel.value; try { localStorage.setItem("wuwaUiAnim", v); } catch (e) { /* ignore */ } apply(); }); }
   apply();
 })();

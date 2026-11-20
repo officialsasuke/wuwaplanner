@@ -637,4 +637,5 @@ button.tm:hover .tmimg { filter: brightness(1.15); outline: 1px solid var(--gold
 .bsec .kv { grid-template-columns: 110px minmax(0, 1fr); }
 .bsec .kv b { text-align: left; }
 
-.field select#bgMode { max-width: 260px; }
+
+html.noanim *, html.noanim *::before, html.noanim *::after { animation: none !important; transition: none !important; }
