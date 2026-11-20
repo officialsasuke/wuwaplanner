@@ -37,14 +37,19 @@ const WEAPON_NAMES = [];
 /* Signature weapon of each resonator. A weapon target "Signature weapon for <resonator>" uses this
    name for its picture (images/weapons/<name>.png). Add new ones here with every patch. */
 const SIGNATURE = {
-  "Hiyuki": "Frostburn",
+  "Hiyuki": "Frostburn", "Lily": "Lullaby", "Hsin": "Blooming Jadehaven", "Suoming": "Unspoken Rue",
+  "Qingxiao": "Glint of Clouds", "Jingran": "Thousandfold Deliverance", "Denia": "Forged Dwarf Star",
+  "Suisui": "Firstlight's Herald", "Yangyang: Xuanling": "Azure Oath", "Lucilla": "Freeze Frame",
+  "Lucy": "Spectral Trigger", "Rebecca": "Skull Thrasher", "Sigrika": "Solsworn Ciphers",
+  "Aemeath": "Everbright Polestar", "Luuk Herssen": "Daybreaker's Spine", "Galbrena": "Lux & Umbra",
+  "Mornye": "Starfield Calibrator", "Lynae": "Spectrum Blaster", "Chisa": "Kumokiri", "Qiuyuan": "Emerald Sentence",
+  "Iuno": "Moongazer's Sigil", "Augusta": "Thunderflare Dominion", "Phrolova": "Lethean Elegy",
+  "Rover (Aero)": "Bloodpact's Pledge",
   "Jiyan": "Verdant Summit", "Yinlin": "Stringmaster", "Jinhsi": "Ages of Harvest", "Changli": "Blazing Brilliance",
   "Xiangli Yao": "Verity's Handle", "Zhezhi": "Rime-Draped Sprouts", "Shorekeeper": "Stellar Symphony",
   "Camellya": "Red Spring", "Carlotta": "The Last Dance", "Roccia": "Tragicomedy", "Phoebe": "Luminous Hymn",
   "Brant": "Unflickering Valor", "Cantarella": "Whispers of Sirens", "Zani": "Blazing Justice",
-  "Ciaccona": "Woodland Aria", "Cartethyia": "Defier's Thorn", "Lupa": "Wildfire Mark", "Phrolova": "Lethean Elegy",
-  "Augusta": "Thunderflare Dominion", "Iuno": "Moongazer's Sigil", "Galbrena": "Lux & Umbra",
-  "Qiuyuan": "Emerald Sentence", "Chisa": "Kumokiri",
+  "Ciaccona": "Woodland Aria", "Cartethyia": "Defier's Thorn", "Lupa": "Wildfire Mark",
 };
 
 /* Estimated one-time Astrite for the rest of a version. "Add estimates" on the Resources page inserts these rows. */

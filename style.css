@@ -44,6 +44,9 @@ body::before { z-index: -1; }
 }
 @keyframes bgsweep { 0% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
 @media (prefers-reduced-motion: reduce) { .bgimg, .bgimg::after { animation: none; } }
+/* while the canvas scene runs (app.js) it replaces the static picture */
+html.bganim .bgimg { display: none; }
+html.bganim body::before { background: radial-gradient(ellipse at 30% 40%, rgba(10, 11, 15, .1), rgba(6, 6, 9, .5)); }
 body {
   min-height: 100vh;
   background: transparent;
