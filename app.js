@@ -965,10 +965,16 @@ const seqTxt = (x) => `S${x.s | 0}`;
 const weapTxt = (x) => (x.w > 0 ? `R${x.w}` : "No sig.");
 
 /* Owned resonators as a Map name -> {s, w, planned, goalIdx}. Optionally adds pull targets. */
+/* Signature weapon level of a resonator: the value on the roster card or the weapon set in Teams > Weapons, whichever is higher. */
+function sigRank(name, rosterW, ow) {
+  const sig = SIGNATURE[name], o = sig && (ow || ownedWeapons()).get(sig);
+  return Math.max(rosterW | 0, o ? o.r | 0 : 0);
+}
 function ownedMap(withPlanned = !!plan.usePlanned) {
   const m = new Map();
+  const ow = ownedWeapons();
   for (const [n, v] of Object.entries(plan.roster || {})) {
-    if (RES_BY_NAME.has(n)) m.set(n, { s: v.s | 0, w: v.w | 0 });
+    if (RES_BY_NAME.has(n)) m.set(n, { s: v.s | 0, w: sigRank(n, v.w, ow) });
   }
   if (withPlanned) {
     // Pull order: resonators first, then weapons (so a weapon target finds its planned resonator).
@@ -1054,8 +1060,9 @@ function renderRoster() {
     .filter((c) => !q || normKey(c.n).includes(q))
     .filter((c) => !only || roster[c.n])
     .sort((a, b) => (!!a.soon - !!b.soon) || (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || ELEMENTS.indexOf(a.e) - ELEMENTS.indexOf(b.e) || a.n.localeCompare(b.n));
+  const ow = ownedWeapons();
   $("#rosterGrid").innerHTML = list.length ? list.map((c) => {
-    const x = roster[c.n];
+    const x0 = roster[c.n], x = x0 && { ...x0, w: sigRank(c.n, x0.w, ow) };
     return `<div class="rc r${c.r}${x ? " owned" : ""}${c.soon ? " soon" : ""}" data-n="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}">
       <button class="rimg" data-toggle title="${c.soon ? "Not released yet" : x ? "Owned. Click to remove" : "Click to mark as owned"}">
         ${portrait("resonators", c.n)}
@@ -1082,7 +1089,13 @@ function renderRoster() {
       const d = b.dataset.d, x = plan.roster[n];
       const k = d[0], step = +d.slice(1);
       if (k === "s") x.s = Math.max(0, Math.min(6, (x.s | 0) + step));
-      else x.w = Math.max(0, Math.min(5, (x.w | 0) + step));
+      else {
+        // the weapon list (Teams > Weapons) and this card describe the same signature weapon: keep them in step
+        const nw = Math.max(0, Math.min(5, sigRank(n, x.w) + step));
+        x.w = nw;
+        const sg = SIGNATURE[n], key = sg && Object.keys(plan.weapons || {}).find((k) => findWeapon(k) && findWeapon(k).n === sg);
+        if (key) { if (nw > 0) plan.weapons[key].r = nw; else delete plan.weapons[key]; }
+      }
       save(); renderRoster();
     });
   });
