@@ -2103,13 +2103,15 @@ init();
   const TAU = Math.PI * 2;
   // quality tiers: 0 full, 1 lighter, 2 minimal; tier 3 = animation stopped (static picture)
   const TIERS = [
-    { fps: 30, dpr: 1.5, dash: true, stars: 1, wave: 4 },
-    { fps: 20, dpr: 1, dash: false, stars: .5, wave: 6 },
-    { fps: 12, dpr: 1, dash: false, stars: .3, wave: 8 },
+    { fps: 60, dpr: 1.5, dash: true, stars: 1, wave: 4, name: "full quality" },
+    { fps: 30, dpr: 1, dash: false, stars: .5, wave: 6, name: "lighter mode" },
+    { fps: 20, dpr: 1, dash: false, stars: .3, wave: 8, name: "minimal mode" },
   ];
   let mode = store.get(KEY);
   if (mode !== "on" && mode !== "off") mode = "auto";
-  let tier = Math.max(0, Math.min(3, +store.get(TKEY) || 0));
+  const loadTier = () => { const v = String(store.get(TKEY) || "").split("|"); return Date.now() - (+v[1] || 0) < 864e5 ? Math.max(0, Math.min(3, +v[0] || 0)) : 0; };
+  const saveTier = (t) => store.set(TKEY, t + "|" + Date.now());
+  let tier = loadTier();
   if (mode === "on") tier = 0;
 
   let running = false, raf = 0;
@@ -2282,33 +2284,36 @@ init();
   }
 
   /* ---- governor: watches how the browser copes and lowers the quality when it cannot keep up ---- */
-  let gFrames = 0, gGap = 0, gCost = 0, gPrev = 0, gBad = 0, gGrace = 0;
-  function resetGov() { gFrames = gGap = gCost = gPrev = gBad = 0; gGrace = performance.now() + 3000; }
-  function govern(now, cost, iv) {
-    if (mode !== "auto" || now < gGrace || !document.hasFocus()) { gPrev = 0; return; }
-    if (gPrev) { gGap += now - gPrev; gCost += cost; gFrames++; }
-    gPrev = now;
-    if (gFrames < 70) return;
-    const slow = gGap / gFrames > iv * 1.4 || gCost / gFrames > iv * .35;
-    gFrames = gGap = gCost = 0;
+  let gFrames = 0, gLate = 0, gCost = 0, gBad = 0, gGrace = 0;
+  function resetGov() { gFrames = gLate = gCost = gBad = 0; gGrace = performance.now() + 3000; }
+  function govern(now, since, cost, expected) {
+    // only judge a window that is visible, focused and free of long stalls (tab switches, window moves)
+    if (mode !== "auto" || now < gGrace || !document.hasFocus() || since > 600) { gFrames = gLate = gCost = 0; return; }
+    gFrames++; gCost += cost; if (since > expected * 1.6) gLate++;
+    if (gFrames < 90) return;
+    const slow = gLate / gFrames > .35 || gCost / gFrames > expected * .4;
+    gFrames = gLate = gCost = 0;
     gBad = slow ? gBad + 1 : 0;
     if (gBad >= 2) { gBad = 0; lower(); }
   }
   function lower() {
     tier = Math.min(3, tier + 1);
-    store.set(TKEY, String(tier));
+    saveTier(tier);
     gGrace = performance.now() + 2500;
     if (tier >= 3) stopScene(); else resize(true);
     note();
   }
 
   /* ---- loop: exactly one requestAnimationFrame chain, whatever happens to focus and visibility ---- */
+  let prevRaf = 0, rafDt = 1000 / 60, dtWin = [], nTick = 0, statN = 0, statT = 0;
   function loop(now) {
     raf = requestAnimationFrame(loop);
-    const fps = TIERS[Math.min(tier, 2)].fps, iv = 1000 / (document.hasFocus() ? fps : Math.min(15, fps));
-    const since = now - lastDraw;
-    if (since < iv - 1) return;
-    lastDraw = now - (since % iv);
+    // learn the frame time of the display (60, 120, 144 Hz ...) and draw on every n-th frame: a steady rhythm, no judder
+    const g = now - prevRaf; prevRaf = now;
+    if (g > 2 && g < 100) { dtWin.push(g); if (dtWin.length >= 40) { rafDt = Math.max(4, Math.min(...dtWin)); dtWin.length = 0; } }
+    const q = TIERS[Math.min(tier, 2)], skip = Math.max(1, Math.floor(1000 / q.fps / rafDt + .4));
+    if (++nTick % skip) return;
+    const since = now - lastDraw; lastDraw = now;
     const dt = Math.min(.1, since / 1000), t0 = performance.now();
     T += dt;
     px += (mx - px) * Math.min(1, dt * 2); py += (my - py) * Math.min(1, dt * 2);
@@ -2318,13 +2323,15 @@ init();
     drawRings(cx, cy);
     drawPulses(dt, cx, cy);
     drawWave();
-    govern(now, performance.now() - t0, iv);
+    govern(now, since, performance.now() - t0, skip * rafDt);
+    statN++;
+    if (now - statT > 1000) { fpsNow = Math.round(statN * 1000 / (now - statT)); statN = 0; statT = now; stat(); }
   }
   function kick() { if (running && !raf && !document.hidden) raf = requestAnimationFrame(loop); }
   function startScene() {
     if (running) { kick(); return; }
     running = true; root.classList.add("bganim"); cv.style.display = "";
-    resize(true); lastDraw = 0; resetGov(); kick();
+    resize(true); lastDraw = 0; statN = 0; statT = 0; resetGov(); kick();
   }
   function stopScene() {
     running = false;
@@ -2336,6 +2343,12 @@ init();
     if (want) startScene(); else stopScene();
     note();
   }
+  let fpsNow = 0;
+  function stat() {
+    const el = document.getElementById("bgStat");
+    if (!el || !el.offsetParent) return;           // only while the Display panel is on screen
+    el.textContent = running ? `Now: ${TIERS[Math.min(tier, 2)].name}, ${fpsNow} fps.` : "Now: off, the picture stays still.";
+  }
   function note() {
     const el = document.getElementById("bgNote"), sel = document.getElementById("bgMode");
     if (sel) sel.value = mode;
@@ -2344,17 +2357,19 @@ init();
       : mode === "auto" && tier >= 3 ? "Switched off automatically because this browser could not keep up. Choose Always on to force it."
       : mode === "auto" && tier > 0 ? "Running in a lighter mode because this browser is slow."
       : "";
+    stat();
   }
   window.wuwaBg = {
     set(m) {
       mode = m === "on" || m === "off" ? m : "auto";
       store.set(KEY, mode);
-      tier = 0; store.set(TKEY, "0");
+      tier = 0; saveTier(0);
       apply();
     },
     get mode() { return mode; },
     get tier() { return tier; },
     get loops() { return raf ? 1 : 0; },
+    get fps() { return fpsNow; },
   };
 
   addEventListener("resize", () => { if (running) resize(false); });
