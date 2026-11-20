@@ -35,6 +35,8 @@ Only upload images you are allowed to publish.
 
 **Easy way:** `prepare_images.bat` (needs Python and `py -m pip install pillow` once) sorts, renames and shrinks your own images for you.
 
+**Rover:** one picture is enough. Name it `Rover` (or put it in `raw_images/resonators` as `Rover.png`). The site uses it for Rover (Aero / Electro / Havoc / Spectro) and marks each one with its element icon and colour. A picture with a Rover for every element (`roveraero.png`, ...) still wins if you add it.
+
 1. Run it once. It creates `raw_images/resonators`, `raw_images/weapons` and `raw_images/currency`.
 2. Put your original files in there, any file names ("Jinhsi.png", "Jinhsi Splash Art.jpg" ...).
 3. Run it again. The finished files (300x400 px for resonators, small icons for the rest) land in `images/`, and it lists everything it could not recognise or that is still missing.

@@ -132,8 +132,18 @@ function applyCurrencyImages() {
 
 function portrait(cat, name) {
   const ph = `assets/${cat === "weapons" ? "ph_weapon" : "ph_char"}.png`;
+  const key = normKey(name);
+  // All four Rovers can share one picture: images/resonators/rover.png (the element badge tells them apart).
+  const shared = cat === "resonators" && key.startsWith("rover") && key !== "rover" ? webImg(cat, "rover") : null;
   const u = findImg(cat, name);
-  if (u) return `<img class="art" src="${u}" alt="" loading="lazy" onerror="this.onerror=null;this.className='art ph';this.src='${ph}'">`;
+  if (u) {
+    const own = u.includes("/" + key + ".");
+    const toPh = `this.onerror=null;this.className='art ph';this.src='${ph}'`;
+    const onerr = shared && own
+      ? `this.onerror=function(){${toPh}};this.className='art shared';this.src='${shared}'`
+      : toPh;
+    return `<img class="${shared && !own ? "art shared" : "art"}" src="${u}" alt="" loading="lazy" onerror="${onerr}">`;
+  }
   return `<img class="art ph" src="${ph}" alt="">`;
 }
 
@@ -606,9 +616,11 @@ function renderGoals(ev) {
     const canMove = prev && prev.end === x.end && (prev.g.type === "weapon") === isW;
     const gtxt = x.guaranteed ? `<span class="good">guaranteed</span>` : `${x.missPulls} pulls short of a guarantee`;
     const img = isW && gl.for && isDefaultWeapon(gl.name) ? gl.for : gl.name;
+    const rc = findResonator(isW ? gl.for : gl.name);
     return `<div class="goal">
-      <div class="card">
+      <div class="card"${rc ? ` style="--el:${EL_COLOR[rc.e]}"` : ""}>
         ${portrait(isW ? "weapons" : "resonators", img)}
+        ${rc ? `<img class="el" src="${elIcon(rc.e)}" alt="${rc.e}" title="${rc.e}">` : ""}
         <div class="num">${i + 1}</div>
         <img class="type" src="assets/${isW ? "ic_sword" : "ic_person"}.png" alt="">
         <div class="tools">${canMove ? `<button class="mv" data-mv="${idx}" title="Pull earlier" aria-label="Pull earlier"></button>` : ""}<button class="rm" data-rm="${idx}" title="Remove" aria-label="Remove"></button></div>
@@ -643,10 +655,6 @@ function moveGoal(idx) {
 function openGoalModal(idx = -1) {
   editGoal = idx;
   const gl = idx >= 0 ? plan.goals[idx] : null;
-  const names = new Set(RESONATORS.filter((c) => c.r === 5).map((c) => c.n));
-  for (const c of ["resonators", "weapons"]) for (const f of images?.cats?.[c]?.files || []) names.add(f.file.replace(/\.[^.]+$/, ""));
-  for (const p of Object.values(history?.pools || {})) for (const f of p.fives || []) names.add(f.name);
-  $("#nameList").innerHTML = [...names].sort().map((n) => `<option value="${esc(n)}">`).join("");
   $("#resList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}">`).join("");
   $("#goalName").value = gl ? gl.name : "";
   $("#goalFor").value = gl?.for || "";
@@ -682,8 +690,26 @@ function suggestBanner() {
   if (b) sel.value = b.end;
 }
 
+/* Suggestions for the name field: resonator names for resonator targets, weapon names for weapon targets. */
+function fillNameList(t) {
+  const isW = t === "weapon";
+  const names = new Set();
+  if (isW) {
+    for (const f of images?.cats?.weapons?.files || []) names.add(f.file.replace(/\.[^.]+$/, ""));
+    for (const k of ["2", "4"]) for (const f of history?.pools?.[k]?.fives || []) names.add(f.name);
+    for (const g of plan.goals || []) if (g.type === "weapon" && !isDefaultWeapon(g.name)) names.add(g.name);
+    for (const n of WEAPON_NAMES) names.add(n);
+  } else {
+    for (const c of RESONATORS) if (c.r === 5) names.add(c.n);
+    for (const f of images?.cats?.resonators?.files || []) names.add(f.file.replace(/\.[^.]+$/, ""));
+    for (const k of ["1", "3"]) for (const f of history?.pools?.[k]?.fives || []) names.add(f.name);
+  }
+  $("#nameList").innerHTML = [...names].sort().map((n) => `<option value="${esc(n)}">`).join("");
+}
+
 function setGoalType(t) {
   goalType = t;
+  fillNameList(t);
   $$("#goalType .btn").forEach((b) => b.classList.toggle("on", b.dataset.type === t));
   $("#goalForWrap").classList.toggle("hidden", t !== "weapon");
   $("#goalName").placeholder = t === "weapon" ? "Weapon name (optional)" : "e.g. Hiyuki";

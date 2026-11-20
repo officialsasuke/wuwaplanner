@@ -46,6 +46,7 @@ Put one PNG per resonator here. The file name must be the name in lower case wit
 | Qiuyuan | `qiuyuan.png` |
 | Rebecca | `rebecca.png` |
 | Roccia | `roccia.png` |
+| Rover (all four, shared picture) | `rover.png` |
 | Rover (Aero) | `roveraero.png` |
 | Rover (Electro) | `roverelectro.png` |
 | Rover (Havoc) | `roverhavoc.png` |

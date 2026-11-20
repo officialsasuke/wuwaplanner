@@ -23,6 +23,7 @@ Needs Pillow once:  py -m pip install pillow
 """
 
 import argparse
+from urllib.parse import unquote
 import difflib
 import re
 import sys
@@ -79,6 +80,7 @@ def norm_key(s: str) -> str:
 def tokens_of(stem: str, noise=None) -> list:
     """File name -> useful words (camelCase and separators split, noise words and numbers dropped)."""
     noise = NOISE if noise is None else noise
+    stem = unquote(stem)  # wiki downloads: "Bloodpact%27s_Pledge" -> "Bloodpact's_Pledge", "Lux_%26_Umbra" -> "Lux_&_Umbra"
     s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", stem)  # IconRoleHead256Yangyang -> Icon Role Head256 Yangyang
     out = []
     for t in re.split(r"[^A-Za-z0-9]+", s):
@@ -98,7 +100,7 @@ def load_resonators() -> list:
     tj = ROOT / "teams.js"
     if tj.exists():
         txt = tj.read_text(encoding="utf-8", errors="replace")
-        m = re.search(r"const RESONATORS\s*=\s*\[(.*?)\n\];", txt, re.S)
+        m = re.search(r"const RESONATORS\s*=\s*\[(.*?)\n\]", txt, re.S)
         if m:
             names = re.findall(r'\["([^"]+)",\s*[45]\s*,', m.group(1))
     if not names:
@@ -125,7 +127,9 @@ class Matcher:
             el = [e for e in ELEMENTS if e in joined]
             if len(el) == 1:
                 return "rover" + el[0], "exact"
-            return None, "Rover needs an element in the name (Aero / Electro / Havoc / Spectro)"
+            if not el:
+                return "rover", "exact"  # one shared picture for all four Rovers
+            return None, "more than one element in the file name (Aero / Electro / Havoc / Spectro)"
         if joined in self.keys:
             return joined, "exact"
         for mk, target, is_alias in self.pairs:
@@ -168,6 +172,38 @@ def crop_ratio(im, ratio_w, ratio_h, ax, ay):
     return im.crop((0, y, w, y + nh))
 
 
+def pick_figure(im, side):
+    """Picture with two figures side by side (e.g. Rover male + female): keep only the left or right one.
+    Needs a transparent background. Returns (image, True if a figure was cut out)."""
+    if im.mode != "RGBA":
+        return im, False
+    w, h = im.size
+    mask = im.getchannel("A").point(lambda v: 255 if v > 40 else 0)
+    cols = mask.resize((w, 1), Image.BOX).tobytes()  # > 0 where a column has any visible pixel
+    runs, start = [], None
+    for x in range(w):
+        on = cols[x] > 2
+        if on and start is None:
+            start = x
+        elif not on and start is not None:
+            runs.append([start, x])
+            start = None
+    if start is not None:
+        runs.append([start, w])
+    merged = []
+    for r in runs:  # join pieces that are close together (loose hair, cloth ends ...)
+        if merged and r[0] - merged[-1][1] < w * 0.03:
+            merged[-1][1] = r[1]
+        else:
+            merged.append(r)
+    figs = [r for r in merged if r[1] - r[0] >= w * 0.2]
+    if len(figs) < 2:
+        return im, False
+    a, b = figs[0] if side == "left" else figs[-1]
+    pad = round(w * 0.03)
+    return im.crop((max(0, a - pad), 0, min(w, b + pad), h)), True
+
+
 def make_resonator(im, width, ax, ay):
     im = crop_ratio(im, 3, 4, ax, ay)
     if im.width > width:  # never scale up
@@ -196,6 +232,8 @@ def main():
     ap.add_argument("--width", type=int, default=300, help="resonator image width in px, height is 4/3 of it (default 300)")
     ap.add_argument("--anchor-x", type=float, default=0.5, help="crop position 0 (left) .. 1 (right), default 0.5")
     ap.add_argument("--anchor-y", type=float, default=0.0, help="crop position 0 (top) .. 1 (bottom), default 0 = keep the head")
+    ap.add_argument("--pick", choices=("left", "right"), default="left",
+                    help="Rover picture with two figures: keep the left (male) or right (female) one (default left)")
     ap.add_argument("--weapon-size", type=int, default=256, help="weapon icon box in px (default 256)")
     ap.add_argument("--currency-size", type=int, default=128, help="currency icon box in px (default 128)")
     ap.add_argument("--dry-run", action="store_true", help="only show what would happen")
@@ -276,6 +314,7 @@ def main():
     done = {c: 0 for c in CATS}
     fuzzy = []
     failed = []
+    two_figs = []
     for (cat, key), (p, _px, how) in sorted(plan.items()):
         dest = out / cat / f"{key}.png"
         if how == "fuzzy":
@@ -287,6 +326,10 @@ def main():
         try:
             im, alpha = load_image(p)
             if cat == "resonators":
+                if key.startswith("rover"):
+                    im, cut = pick_figure(im, args.pick)
+                    if cut:
+                        two_figs.append(p)
                 im = make_resonator(im, args.width, args.anchor_x, args.anchor_y)
             else:
                 im = make_icon(im, args.weapon_size if cat == "weapons" else args.currency_size)
@@ -305,6 +348,9 @@ def main():
         print("\nGuessed from a similar spelling - please check:")
         for p, d in fuzzy:
             print(f"  {p.name}  ->  {d}")
+    if two_figs:
+        print(f"\nTwo figures found in: {', '.join(q.name for q in two_figs)}  - kept the {args.pick} one"
+              f" (use --pick {'right' if args.pick == 'left' else 'left'} for the other).")
     if dups:
         print("\nSeveral files for the same item - kept the bigger one:")
         for kept, skipped in dups:
@@ -320,6 +366,9 @@ def main():
 
     have = {q.stem for q in (out / "resonators").glob("*.png")} | {k for (c, k) in plan if c == "resonators"}
     missing = sorted(all_keys - have)
+    if "rover" in have:  # the shared picture covers every Rover
+        missing = [k for k in missing if not k.startswith("rover")]
+        print("\nRover: the shared picture rover.png is used for all four elements.")
     if missing:
         label = {norm_key(n): n for n in names}
         print(f"\nStill without an image ({len(missing)}): " + ", ".join(label[k] for k in missing))

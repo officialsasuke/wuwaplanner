@@ -30,6 +30,10 @@ const STANDARD_5 = [
   { n: "Lingyang", id: 1104 }, { n: "Jianxin", id: 1405 },
 ];
 
+/* Weapon names offered when you add a weapon target (besides the ones from your Convene history).
+   Add names here, spelled like in the game. The image file name is the name in lower case, letters and digits only. */
+const WEAPON_NAMES = [];
+
 /* Estimated one-time Astrite for the rest of a version. "Add estimates" on the Resources page inserts these rows. */
 const INCOME_PRESETS = [
   {
