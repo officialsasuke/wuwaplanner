@@ -28,29 +28,21 @@ img { user-select: none; -webkit-user-drag: none; }
 
 body::before { content: ""; position: fixed; inset: 0; background: radial-gradient(ellipse at 30% 40%, rgba(10, 11, 15, .35), rgba(6, 6, 9, .72)); pointer-events: none; z-index: 0; }
 .app { position: relative; z-index: 1; }
-/* Animated background: the picture breathes and drifts slowly, a light sweep passes, sparks float up (app.js) */
+/* Background: a still picture. While the live canvas scene runs (app.js) it is replaced by a plain gradient. */
 .bgimg { position: fixed; inset: -4%; z-index: -2; pointer-events: none;
-  background: url("assets/bg.png") center top / cover no-repeat;
-  animation: bgdrift 70s ease-in-out infinite alternate; will-change: transform; }
-.bgimg::after { content: ""; position: absolute; inset: 0;
-  background: linear-gradient(115deg, transparent 35%, rgba(232, 182, 74, .07) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
-  animation: bgsweep 14s linear infinite; }
+  background: url("assets/bg.png") center top / cover no-repeat; }
+
 #bgfx { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
 body::before { z-index: -1; }
-@keyframes bgdrift {
-  0% { transform: scale(1) translate(0, 0); }
-  50% { transform: scale(1.05) translate(-1.2%, .8%); }
-  100% { transform: scale(1.03) translate(1%, -1%); }
-}
-@keyframes bgsweep { 0% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
-@media (prefers-reduced-motion: reduce) { .bgimg, .bgimg::after { animation: none; } }
-/* while the canvas scene runs (app.js) it replaces the static picture */
 /* on phones 100vh changes while the address bar slides; the large viewport height (lvh) does not */
 @supports (height: 100lvh) {
   .bgimg { bottom: auto; height: 108lvh; }
   body::before { bottom: auto; height: 100lvh; }
 }
-html.bganim .bgimg { display: none; }
+/* with the live scene the picture is replaced by a plain gradient that is painted once (the canvas stays transparent) */
+html.bganim .bgimg { inset: 0;
+  background: radial-gradient(circle 90vmax at 80% 18%, #17181e, #0e0f13 60%, #08090b); }
+@supports (height: 100lvh) { html.bganim .bgimg { bottom: auto; height: 100lvh; } }
 html.bganim body::before { background: radial-gradient(ellipse at 30% 40%, rgba(10, 11, 15, .1), rgba(6, 6, 9, .5)); }
 body {
   min-height: 100vh;
@@ -115,7 +107,7 @@ body {
   border-image: url("assets/panel.png") 36 fill / 18px stretch;
   padding: 2px 6px 2px;
   margin-bottom: 16px;
-  backdrop-filter: blur(4px);
+  background: rgba(8, 9, 12, .42) padding-box;   /* replaces the old backdrop blur: keeps text readable over the moving background */
 }
 .panel h2 {
   margin: -2px 0 14px; padding: 0 0 9px 16px;
@@ -400,7 +392,7 @@ select option { background: #16171b; color: var(--text); }
 .missing .chip { display: inline-block; margin: 0 6px 6px 0; padding: 3px 9px; font-size: 12px; border: 1px dashed rgba(242, 239, 230, .35); color: var(--white); }
 
 /* ================= Dialog ================= */
-.modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(4, 4, 6, .7); backdrop-filter: blur(3px); overflow-y: auto; padding: 16px 0; }
+.modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(4, 4, 6, .78); overflow-y: auto; padding: 16px 0; }
 .modal .mbox { max-height: none; margin: auto; }
 .mbox.setup { width: min(560px, 94vw); }
 .sugrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
@@ -644,3 +636,5 @@ button.tm:hover .tmimg { filter: brightness(1.15); outline: 1px solid var(--gold
 }
 .bsec .kv { grid-template-columns: 110px minmax(0, 1fr); }
 .bsec .kv b { text-align: left; }
+
+.field select#bgMode { max-width: 260px; }

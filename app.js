@@ -2083,20 +2083,43 @@ init();
 /* ---------------------------------------------------------------- Animated background
    A live version of assets/bg.png in the game's Tacet style: rotating resonance rings with a gold
    scanner, a resonance pulse every few seconds, a breathing sound wave and twinkling stars.
-   The rings lean a little towards the mouse. Off (static picture) when reduced motion is asked for. */
+   Built to be cheap: one single draw loop, a static gradient behind the canvas, rings are only drawn
+   where they are on screen, a frame cap, slower drawing while the window is not in focus, and a governor
+   that lowers the quality (and finally stops the animation) when a browser cannot keep up.
+   Settings > Display can force it on or off. Off means the static picture. */
 (function bgScene() {
   const cv = document.getElementById("bgfx");
-  if (!cv || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (!cv) return;
+  const root = document.documentElement;
+  const KEY = "wuwaBg", TKEY = "wuwaBgTier";
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } },
+  };
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const ctx = cv.getContext("2d");
-  document.documentElement.classList.add("bganim");
   const GOLD = "232,182,74", INK = "214,210,198";
+  const INK_FILL = `rgb(${INK})`, GOLD_FILL = `rgb(${GOLD})`;
   const TAU = Math.PI * 2;
-  let w = 0, h = 0, dpr = 1, R = 1, rings = [], stars = [], sparks = [], last = 0, t0 = performance.now();
-  let mx = 0, my = 0, px = 0, py = 0, nextPulse = 1.2, pulses = [];
+  // quality tiers: 0 full, 1 lighter, 2 minimal; tier 3 = animation stopped (static picture)
+  const TIERS = [
+    { fps: 30, dpr: 1.5, dash: true, stars: 1, wave: 4 },
+    { fps: 20, dpr: 1, dash: false, stars: .5, wave: 6 },
+    { fps: 12, dpr: 1, dash: false, stars: .3, wave: 8 },
+  ];
+  let mode = store.get(KEY);
+  if (mode !== "on" && mode !== "off") mode = "auto";
+  let tier = Math.max(0, Math.min(3, +store.get(TKEY) || 0));
+  if (mode === "on") tier = 0;
+
+  let running = false, raf = 0;
+  let w = 0, h = 0, dpr = 1, R = 1, T = 0, rings = [], starsInk = [], starsGold = [], crosses = [], sparks = [], pulses = [], nextPulse = 1.2;
+  let mx = 0, my = 0, px = 0, py = 0, lastDraw = 0;
   const rnd = (a, b) => a + Math.random() * (b - a);
   const seeded = (n) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
 
   function build() {
+    const q = TIERS[Math.min(tier, 2)];
     rings = [];
     // inner rings: short dashed arcs close to the core
     for (let i = 0; i < 4; i++) rings.push({ r: .045 + i * .028, a0: seeded(i) * TAU, len: rnd(.9, 1.6) * Math.PI, sp: (i % 2 ? -1 : 1) * rnd(.05, .12), dash: i % 2 ? [6, 6] : [], al: .75, lw: 1.3 });
@@ -2107,22 +2130,26 @@ init();
       rings.push({ r, a0: seeded(i + 3) * TAU, len: rnd(.7, 1.5) * Math.PI, sp: (i % 2 ? -1 : 1) * rnd(.006, .02) * (1.4 - r / 1.4),
         dash: seeded(i + 30) < .45 ? [10, 9] : [], al: rnd(.22, .45), lw: 1.1, gold: i === 2 || i === 7 || i === 12 });
     }
-    stars = [];
-    const n = Math.round(w * h / 9000);
-    for (let i = 0; i < n; i++) stars.push({ x: Math.random() * w, y: Math.random() * h, s: rnd(.6, 1.6), gold: Math.random() < .3, cross: Math.random() < .12, tw: rnd(0, TAU), sp: rnd(.4, 1.6) });
+    for (const g of rings) g.st = `rgba(${INK},${g.al})`;
+    starsInk = []; starsGold = []; crosses = [];
+    const n = Math.round(w * h / 9000 * q.stars);
+    for (let i = 0; i < n; i++) {
+      const s = { x: Math.random() * w, y: Math.random() * h, s: rnd(.6, 1.6), tw: rnd(0, TAU), sp: rnd(.4, 1.6) };
+      if (Math.random() < .12) crosses.push(s); else if (Math.random() < .3) starsGold.push(s); else starsInk.push(s);
+    }
     sparks = [];
-    for (let i = 0; i < Math.round(Math.min(40, w * h / 40000)); i++) sparks.push(spark({}, true));
+    for (let i = 0; i < Math.round(Math.min(40, w * h / 40000) * (tier ? .5 : 1)); i++) sparks.push(spark({}, true));
   }
   function spark(p, anyY) {
     p.x = rnd(0, w); p.y = anyY ? rnd(0, h) : h + 8; p.s = rnd(1.4, 3.4); p.v = rnd(8, 24); p.dx = rnd(-5, 5); p.a = rnd(.3, .85); p.tw = rnd(0, TAU);
     return p;
   }
-  function resize() {
+  function resize(force) {
     const nw = document.documentElement.clientWidth || innerWidth, nh = innerHeight;
     // Phones fire resize whenever the address bar or keyboard moves, and then only the height changes.
     // Keep the tallest height seen so the picture is never stretched and the stars do not jump around.
-    if (h && nw === w && nh <= h) return;
-    dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    if (!force && h && nw === w && nh <= h) return;
+    dpr = Math.min(TIERS[Math.min(tier, 2)].dpr, window.devicePixelRatio || 1);
     w = nw; h = nh; R = Math.max(w, h);
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     cv.style.width = w + "px"; cv.style.height = h + "px";   // same size as the buffer, never the changing 100vh
@@ -2130,12 +2157,35 @@ init();
     build();
   }
 
-  function drawRings(T, cx, cy) {
+  /* Rings are huge; most of each arc lies outside the window. Only the parts on screen are stroked. */
+  const MARG = 100, VIS = new Uint8Array(96);
+  const onScreen = (x, y) => x > -MARG && x < w + MARG && y > -MARG && y < h + MARG;
+  function strokeArc(cx, cy, rr, a0, len, dashed) {
+    const n = Math.max(6, Math.min(90, Math.ceil(len * rr / 80)));
+    for (let i = 0; i <= n; i++) { const a = a0 + len * i / n; VIS[i] = onScreen(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr) ? 1 : 0; }
+    ctx.beginPath();
+    let start = -1;
+    for (let i = 0; i < n; i++) {
+      const seg = VIS[i] || VIS[i + 1];
+      if (seg && start < 0) start = i;
+      if ((!seg || i === n - 1) && start >= 0) {
+        const end = seg ? n : i;
+        const as = a0 + len * start / n;
+        ctx.moveTo(cx + Math.cos(as) * rr, cy + Math.sin(as) * rr);
+        ctx.arc(cx, cy, rr, as, a0 + len * end / n);
+        start = -1;
+      }
+    }
+    ctx.stroke();
+  }
+
+  function drawRings(cx, cy) {
     ctx.lineCap = "round";
+    const dashOn = TIERS[Math.min(tier, 2)].dash;
     for (const g of rings) {
       const rr = g.r * R, rot = T * g.sp;
       if (g.tick) {                       // tick ring like a dial
-        ctx.strokeStyle = `rgba(${INK},${g.al})`; ctx.lineWidth = 1; ctx.setLineDash([]);
+        ctx.strokeStyle = g.st; ctx.lineWidth = 1; ctx.setLineDash([]);
         ctx.beginPath();
         for (let k = 0; k < 72; k++) {
           const a = rot + k / 72 * TAU, long = k % 6 === 0, l = long ? 9 : 4;
@@ -2146,24 +2196,28 @@ init();
         continue;
       }
       const a0 = g.a0 + rot;
-      ctx.setLineDash(g.dash); ctx.lineWidth = g.lw;
-      ctx.strokeStyle = `rgba(${INK},${g.al})`;
-      ctx.beginPath(); ctx.arc(cx, cy, rr, a0, a0 + g.len); ctx.stroke();
+      const dashed = dashOn && g.dash.length > 0;
+      ctx.setLineDash(dashed ? g.dash : []); ctx.lineWidth = g.lw; ctx.strokeStyle = g.st;
+      strokeArc(cx, cy, rr, a0, g.len, dashed);
       if (g.gold) {                       // a bright gold scanner running along the arc
         const p = (T * .12 + g.r) % 1, a = a0 + p * g.len;
-        const grd = ctx.createLinearGradient(cx + Math.cos(a - .25) * rr, cy + Math.sin(a - .25) * rr, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+        const sx = cx + Math.cos(a) * rr, sy = cy + Math.sin(a) * rr;
+        if (!onScreen(sx, sy)) continue;
+        const grd = ctx.createLinearGradient(cx + Math.cos(a - .25) * rr, cy + Math.sin(a - .25) * rr, sx, sy);
         grd.addColorStop(0, `rgba(${GOLD},0)`); grd.addColorStop(1, `rgba(${GOLD},.9)`);
         ctx.setLineDash([]); ctx.strokeStyle = grd; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(cx, cy, rr, Math.max(a0, a - .25), a); ctx.stroke();
         ctx.fillStyle = `rgba(${GOLD},.95)`;
-        ctx.beginPath(); ctx.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 2.2, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, TAU); ctx.fill();
       }
     }
     ctx.setLineDash([]);
     // glowing core
-    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, .05 * R);
-    core.addColorStop(0, `rgba(${GOLD},.10)`); core.addColorStop(1, `rgba(${GOLD},0)`);
-    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, .05 * R, 0, TAU); ctx.fill();
+    if (onScreen(cx, cy)) {
+      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, .05 * R);
+      core.addColorStop(0, `rgba(${GOLD},.10)`); core.addColorStop(1, `rgba(${GOLD},0)`);
+      ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, .05 * R, 0, TAU); ctx.fill();
+    }
   }
 
   function drawPulses(dt, cx, cy) {
@@ -2180,40 +2234,44 @@ init();
     pulses = pulses.filter((p) => p.a > 0);
   }
 
-  function drawWave(T) {
-    const y0 = h * .715, step = w < 700 ? 5 : 4, maxH = Math.min(70, h * .07);
-    const sweep = ((T * .09) % 1.4 - .2) * w;    // a gold glow travelling along the wave
-    ctx.setLineDash([1.2, 2.4]); ctx.lineWidth = 1.2;
-    const paths = [[], []];
+  function colAmp(x, maxH) {
+    const u = x / w;
+    const env = Math.pow(Math.sin(Math.min(1, u * 1.15) * Math.PI), .8) * (1 - u * .55);
+    const v = .55 + .45 * Math.sin(u * 46 - T * 2.1) * Math.sin(u * 13 + T * .7) + .25 * Math.sin(u * 90 + T * 3.3);
+    return Math.max(1.5, env * Math.abs(v) * maxH);
+  }
+  function drawWave() {
+    const q = TIERS[Math.min(tier, 2)];
+    const y0 = h * .715, step = q.wave + (w < 700 ? 1 : 0), maxH = Math.min(70, h * .07);
+    const sweep = ((T * .09) % 1.4 - .2) * w, hotW = w * .06;    // a gold glow travelling along the wave
+    ctx.setLineDash(q.dash ? [1.2, 2.4] : []); ctx.lineWidth = q.dash ? 1.2 : 1;
+    ctx.strokeStyle = `rgba(${INK},${q.dash ? .55 : .42})`;
+    ctx.beginPath();
     for (let x = 0; x < w; x += step) {
-      const u = x / w;
-      const env = Math.pow(Math.sin(Math.min(1, u * 1.15) * Math.PI), .8) * (1 - u * .55);
-      const v = .55 + .45 * Math.sin(u * 46 - T * 2.1) * Math.sin(u * 13 + T * .7) + .25 * Math.sin(u * 90 + T * 3.3);
-      const amp = Math.max(1.5, env * Math.abs(v) * maxH);
-      const hot = Math.abs(x - sweep) < w * .06;
-      paths[hot ? 1 : 0].push([x, amp]);
+      if (Math.abs(x - sweep) < hotW) continue;
+      const a = colAmp(x, maxH); ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a);
     }
-    ctx.strokeStyle = `rgba(${INK},.55)`;
-    ctx.beginPath(); for (const [x, a] of paths[0]) { ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a); } ctx.stroke();
+    ctx.stroke();
     ctx.strokeStyle = `rgba(${GOLD},.8)`;
-    ctx.beginPath(); for (const [x, a] of paths[1]) { ctx.moveTo(x, y0 - a * 1.1); ctx.lineTo(x, y0 + a * 1.1); } ctx.stroke();
+    ctx.beginPath();
+    const x1 = Math.max(0, Math.ceil((sweep - hotW) / step) * step);
+    for (let x = x1; x < w && x < sweep + hotW; x += step) { const a = colAmp(x, maxH) * 1.1; ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a); }
+    ctx.stroke();
     ctx.setLineDash([]);
     ctx.strokeStyle = `rgba(${INK},.18)`; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
   }
 
-  function drawStars(T, dt) {
-    for (const s of stars) {
-      const a = .25 + .55 * (.5 + .5 * Math.sin(s.tw + T * s.sp));
-      if (s.cross) {
-        ctx.strokeStyle = `rgba(${INK},${a * .8})`; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(s.x - 4, s.y); ctx.lineTo(s.x + 4, s.y); ctx.moveTo(s.x, s.y - 4); ctx.lineTo(s.x, s.y + 4); ctx.stroke();
-      } else {
-        ctx.fillStyle = `rgba(${s.gold ? GOLD : INK},${a})`;
-        ctx.fillRect(s.x, s.y, s.s, s.s);
-      }
-    }
-    ctx.fillStyle = `rgba(${GOLD},1)`;
+  function drawStars(dt) {
+    ctx.fillStyle = INK_FILL;
+    for (const s of starsInk) { ctx.globalAlpha = .25 + .55 * (.5 + .5 * Math.sin(s.tw + T * s.sp)); ctx.fillRect(s.x, s.y, s.s, s.s); }
+    ctx.fillStyle = GOLD_FILL;
+    for (const s of starsGold) { ctx.globalAlpha = .25 + .55 * (.5 + .5 * Math.sin(s.tw + T * s.sp)); ctx.fillRect(s.x, s.y, s.s, s.s); }
+    ctx.strokeStyle = INK_FILL; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.globalAlpha = .45;
+    for (const s of crosses) { ctx.moveTo(s.x - 4, s.y); ctx.lineTo(s.x + 4, s.y); ctx.moveTo(s.x, s.y - 4); ctx.lineTo(s.x, s.y + 4); }
+    ctx.stroke();
+    ctx.fillStyle = GOLD_FILL;
     for (const p of sparks) {
       p.y -= p.v * dt; p.x += p.dx * dt; p.tw += dt * 1.6;
       if (p.y < -8 || p.x < -8 || p.x > w + 8) spark(p, false);
@@ -2223,24 +2281,90 @@ init();
     ctx.globalAlpha = 1;
   }
 
-  function frame(now) {
-    const dt = Math.min(.05, (now - last) / 1000 || 0); last = now;
-    const T = (now - t0) / 1000;
+  /* ---- governor: watches how the browser copes and lowers the quality when it cannot keep up ---- */
+  let gFrames = 0, gGap = 0, gCost = 0, gPrev = 0, gBad = 0, gGrace = 0;
+  function resetGov() { gFrames = gGap = gCost = gPrev = gBad = 0; gGrace = performance.now() + 3000; }
+  function govern(now, cost, iv) {
+    if (mode !== "auto" || now < gGrace || !document.hasFocus()) { gPrev = 0; return; }
+    if (gPrev) { gGap += now - gPrev; gCost += cost; gFrames++; }
+    gPrev = now;
+    if (gFrames < 70) return;
+    const slow = gGap / gFrames > iv * 1.4 || gCost / gFrames > iv * .35;
+    gFrames = gGap = gCost = 0;
+    gBad = slow ? gBad + 1 : 0;
+    if (gBad >= 2) { gBad = 0; lower(); }
+  }
+  function lower() {
+    tier = Math.min(3, tier + 1);
+    store.set(TKEY, String(tier));
+    gGrace = performance.now() + 2500;
+    if (tier >= 3) stopScene(); else resize(true);
+    note();
+  }
+
+  /* ---- loop: exactly one requestAnimationFrame chain, whatever happens to focus and visibility ---- */
+  function loop(now) {
+    raf = requestAnimationFrame(loop);
+    const fps = TIERS[Math.min(tier, 2)].fps, iv = 1000 / (document.hasFocus() ? fps : Math.min(15, fps));
+    const since = now - lastDraw;
+    if (since < iv - 1) return;
+    lastDraw = now - (since % iv);
+    const dt = Math.min(.1, since / 1000), t0 = performance.now();
+    T += dt;
     px += (mx - px) * Math.min(1, dt * 2); py += (my - py) * Math.min(1, dt * 2);
     const cx = w * .8 + px * 18, cy = h * .18 + py * 12;
     ctx.clearRect(0, 0, w, h);
-    const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * .9);
-    bg.addColorStop(0, "#17181e"); bg.addColorStop(.6, "#0e0f13"); bg.addColorStop(1, "#08090b");
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-    drawStars(T, dt);
-    drawRings(T, cx, cy);
+    drawStars(dt);
+    drawRings(cx, cy);
     drawPulses(dt, cx, cy);
-    drawWave(T);
-    if (!document.hidden) requestAnimationFrame(frame);
+    drawWave();
+    govern(now, performance.now() - t0, iv);
   }
-  addEventListener("resize", resize);
-  addEventListener("pointermove", (e) => { mx = e.clientX / w - .5; my = e.clientY / h - .5; }, { passive: true });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { last = performance.now(); requestAnimationFrame(frame); } });
-  resize();
-  requestAnimationFrame(frame);
+  function kick() { if (running && !raf && !document.hidden) raf = requestAnimationFrame(loop); }
+  function startScene() {
+    if (running) { kick(); return; }
+    running = true; root.classList.add("bganim"); cv.style.display = "";
+    resize(true); lastDraw = 0; resetGov(); kick();
+  }
+  function stopScene() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0; root.classList.remove("bganim"); cv.style.display = "none";
+  }
+  function apply() {
+    const want = !reduced && mode !== "off" && !(mode === "auto" && tier >= 3);
+    if (want) startScene(); else stopScene();
+    note();
+  }
+  function note() {
+    const el = document.getElementById("bgNote"), sel = document.getElementById("bgMode");
+    if (sel) sel.value = mode;
+    if (!el) return;
+    el.textContent = reduced ? "Your system asks for reduced motion, so the picture stays still."
+      : mode === "auto" && tier >= 3 ? "Switched off automatically because this browser could not keep up. Choose Always on to force it."
+      : mode === "auto" && tier > 0 ? "Running in a lighter mode because this browser is slow."
+      : "";
+  }
+  window.wuwaBg = {
+    set(m) {
+      mode = m === "on" || m === "off" ? m : "auto";
+      store.set(KEY, mode);
+      tier = 0; store.set(TKEY, "0");
+      apply();
+    },
+    get mode() { return mode; },
+    get tier() { return tier; },
+    get loops() { return raf ? 1 : 0; },
+  };
+
+  addEventListener("resize", () => { if (running) resize(false); });
+  addEventListener("pointermove", (e) => { if (w) { mx = e.clientX / w - .5; my = e.clientY / h - .5; } }, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { if (raf) cancelAnimationFrame(raf); raf = 0; }
+    else { lastDraw = 0; resetGov(); kick(); }
+  });
+  addEventListener("focus", resetGov);
+  const sel = document.getElementById("bgMode");
+  if (sel) sel.addEventListener("change", () => window.wuwaBg.set(sel.value));
+  apply();
 })();
