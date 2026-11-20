@@ -1,0 +1,1876 @@
+"use strict";
+
+/* ================================================================
+   WuWa Pull Planner – interface and calculator
+   ================================================================ */
+
+/* ---------------------------------------------------------------- Dates and server time */
+const isoOk = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ""));
+const dayNum = (iso) => { const [y, m, d] = iso.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
+const isoOf = (n) => new Date(n * 86400000).toISOString().slice(0, 10);
+const serverOf = (p) => SERVERS.find((s) => s.k === p.server) || SERVERS[1];
+
+/* Today's game day on the chosen server (the day changes at 04:00 server time). */
+function serverToday(p = plan) {
+  const ms = Date.now() + serverOf(p).utc * 3600000 - RESET_HOUR * 3600000;
+  return Math.floor(ms / 86400000);
+}
+
+/* Default banner end: the last phase that is still running, otherwise three weeks from today. */
+function defaultEnd() {
+  const today = isoOf(Math.floor((Date.now() + 3600000 - RESET_HOUR * 3600000) / 86400000));
+  const open = BANNERS.filter((b) => b.end >= today).map((b) => b.end).sort();
+  return open.length ? open[open.length - 1] : isoOf(dayNum(today) + 21);
+}
+
+/* Neutral start. Every visitor fills in their own account (Quick setup or the Resources page). */
+const DEFAULT_PLAN = {
+  astrite: 0, lunite: 0, useLunite: false, radiant: 0, forging: 0,
+  endDate: defaultEnd(), dailies: true, sub: false,
+  server: "europe", todayClaimed: true,
+  model: { ...DEFAULT_MODEL },
+  goals: [],
+  charPity: 0, guaranteed: false, weaponPity: 0,
+  dayTarget: 0.5, scenarios: [],
+  sources: [],
+  roster: {},
+  teamBuild: "solid", usePlanned: true, setSize: 2,
+  myTeams: [],
+};
+
+const PAGES = {
+  overview: ["Overview", "Convene Planner"],
+  resources: ["Resources", "Inventory and income"],
+  analysis: ["Analysis", "Daily goal and chances"],
+  scenarios: ["Scenarios", "What if"],
+  teams: ["Teams", "Roster and team builder"],
+  history: ["History", "Convene Record"],
+  images: ["Images", "Your images and import"],
+};
+
+let plan = structuredClone(DEFAULT_PLAN);
+let history = null;
+let images = null;
+let online = false;
+let hasUrl = false;
+let activeTab = "1";
+let page = "overview";
+let goalType = "char";
+let teamTab = "roster";
+let rosterEl = "All";
+let pickEl = "All";
+let autoShown = 8;
+let pickTarget = null;
+let editGoal = -1;        // index in plan.goals while the target dialog edits one, -1 = new target
+let sessionUrl = "";      // Convene link for this visit only (not stored unless the visitor agrees)
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const fix1 = (n) => n.toFixed(1);
+const pct = (p) => {
+  if (p >= 0.9995) return "100%";
+  if (p > 0.995) return ">99%";
+  if (p > 0 && p < 0.005) return "<1%";
+  return Math.round(p * 100) + "%";
+};
+
+/* ---------------------------------------------------------------- Images */
+const CUR_BUILTIN = { astrite: "assets/ic_astrite.png", lunite: "assets/ic_lunite.png", radiant: "assets/ic_radiant.png", forging: "assets/ic_forging.png" };
+const CUR_ALIASES = {
+  astrite: ["astrite"],
+  lunite: ["lunite", "lunitefragment", "lunitefragments"],
+  radiant: ["radiant", "radianttide", "radianttides"],
+  forging: ["forging", "forgingtide", "forgingtides"],
+};
+
+function normKey(s) {
+  return String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/* Without the local server (GitHub Pages) images are looked up by name:
+   images/<folder>/<name in lower case, letters and digits only>.png, e.g. images/resonators/yangyangxuanling.png */
+const WEB_IMG_EXT = "png";
+function webImg(cat, name) {
+  const k = normKey(name);
+  return k ? `images/${cat}/${k}.${WEB_IMG_EXT}` : null;
+}
+
+function findImg(cat, name) {
+  if (!online) return webImg(cat, name);
+  const files = images?.cats?.[cat]?.files || [];
+  const key = normKey(name);
+  if (!key || !files.length) return null;
+  const v = (f) => f.url + "?v=" + f.mtime;
+  const exact = files.find((f) => f.key === key);
+  if (exact) return v(exact);
+  let best = null;
+  for (const f of files) {
+    if (f.key.length < 3) continue;
+    if (key.includes(f.key) || f.key.includes(key)) {
+      if (!best || f.key.length > best.key.length) best = f;
+    }
+  }
+  return best ? v(best) : null;
+}
+
+function curImg(k) {
+  for (const a of CUR_ALIASES[k]) {
+    const u = findImg("currency", a);
+    if (u) return u;
+  }
+  return CUR_BUILTIN[k];
+}
+
+function applyCurrencyImages() {
+  $$("[data-cur]").forEach((el) => {
+    const k = el.dataset.cur;
+    el.onerror = () => { el.onerror = null; el.src = CUR_BUILTIN[k]; };
+    el.src = online ? curImg(k) : webImg("currency", k);
+  });
+}
+
+function portrait(cat, name) {
+  const ph = `assets/${cat === "weapons" ? "ph_weapon" : "ph_char"}.png`;
+  const u = findImg(cat, name);
+  if (u) return `<img class="art" src="${u}" alt="" loading="lazy" onerror="this.onerror=null;this.className='art ph';this.src='${ph}'">`;
+  return `<img class="art ph" src="${ph}" alt="">`;
+}
+
+async function loadImages() {
+  if (!online) return;
+  try { images = await (await fetch("/api/images")).json(); } catch (e) { images = null; }
+  applyCurrencyImages();
+}
+
+/* ---------------------------------------------------------------- Browser import (GitHub Pages) */
+const URL_RE = /https:\/\/aki-gm-resources(?:-oversea)?\.aki-game\.(?:net|com)\/aki\/gacha\/index\.html#\/record[^"\s]*/;
+const POOL_LABELS = { 1: "Featured Resonator", 2: "Featured Weapon", 3: "Standard Resonator", 4: "Standard Weapon" };
+const STANDARD5 = STANDARD_5.map((x) => x.n.toLowerCase());
+const STANDARD5_IDS = STANDARD_5.map((x) => x.id);
+
+function parseConveneUrl(url) {
+  const m = String(url).match(URL_RE);
+  if (!m) throw new Error("That is not a Convene history link. It starts with https://aki-gm-resources...");
+  url = m[0];
+  const frag = url.split("#")[1] || "";
+  const q = new URLSearchParams(frag.split("?")[1] || "");
+  const p = {
+    url,
+    api: url.includes("aki-game.net") ? "https://gmserver-api.aki-game2.net" : "https://gmserver-api.aki-game2.com",
+    serverId: q.get("svr_id") || "", playerId: q.get("player_id") || "", recordId: q.get("record_id") || "",
+    cardPoolId: q.get("resources_id") || "",
+  };
+  if (!p.playerId || !p.recordId) throw new Error("The link has no player_id/record_id. Copy it again from the game log.");
+  return p;
+}
+
+async function fetchPool(p, type) {
+  const res = await fetch(p.api + "/gacha/record/query", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cardPoolId: p.cardPoolId, cardPoolType: type, languageCode: "en", playerId: p.playerId, recordId: p.recordId, serverId: p.serverId }),
+  });
+  const j = await res.json();
+  if (j.code !== 0) throw new Error(`Kuro API reports error ${j.code}: ${j.message}. Usually the link has expired: open the Convene history in the game again and copy a new link.`);
+  return j.data || [];
+}
+
+function loadRawHistory() {
+  try { return JSON.parse(localStorage.getItem("wuwaHistoryRaw") || "null") || { pools: {} }; } catch (e) { return { pools: {} }; }
+}
+
+/* old/new are chronological (old -> new); the overlapping range is replaced by the new data. */
+function mergeRecords(old, neu) {
+  if (!neu.length) return old;
+  if (!old.length) return neu;
+  const cutoff = neu[0].time;
+  return old.filter((r) => r.time < cutoff).concat(neu);
+}
+
+async function browserSync(url) {
+  const p = parseConveneUrl(url);
+  const raw = loadRawHistory();
+  raw.pools = raw.pools || {};
+  if (raw.playerId && raw.playerId !== p.playerId) raw.pools = {}; // different account
+  const counts = {};
+  for (const type of [1, 2, 3, 4]) {
+    const data = await fetchPool(p, type);
+    const recs = data.slice().reverse().map((r) => ({ name: r.name, id: r.resourceId, q: +r.qualityLevel || 3, type: r.resourceType, time: r.time }));
+    raw.pools[type] = mergeRecords(raw.pools[type] || [], recs);
+    counts[type] = data.length;
+  }
+  const d = new Date();
+  raw.playerId = p.playerId;
+  raw.updated = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  localStorage.setItem("wuwaHistoryRaw", JSON.stringify(raw));
+  sessionUrl = p.url;
+  // The link is only kept if the visitor ticked "Remember the link".
+  if ($("#rememberLink") && $("#rememberLink").checked) localStorage.setItem("wuwaConveneUrl", p.url);
+  else localStorage.removeItem("wuwaConveneUrl");
+  return { counts, history: analyzeHistory(raw) };
+}
+
+/* Same analysis as the local server: pity, 50/50 results, copies per name. */
+function analyzeHistory(raw) {
+  const out = { updated: raw.updated, playerId: raw.playerId, pools: {}, counts: {} };
+  for (const recs of Object.values(raw.pools || {})) for (const r of recs) {
+    if ((r.q || 3) >= 4 && r.name) out.counts[r.name] = (out.counts[r.name] || 0) + 1;
+  }
+  for (const [key, recs] of Object.entries(raw.pools || {})) {
+    let pity5 = 0, pity4 = 0, lostLast = false;
+    const fives = [];
+    for (const r of recs) {
+      pity5++; pity4++;
+      if (r.q === 4) pity4 = 0;
+      if (r.q === 5) {
+        const isStd = STANDARD5_IDS.includes(r.id) || STANDARD5.includes(String(r.name || "").toLowerCase());
+        let result = null;
+        if (key === "1") {
+          result = isStd ? "lost" : lostLast ? "guarantee" : "won";
+          lostLast = isStd;
+        }
+        // The oldest 5★ in the record: older pulls may be missing, so pity and 50/50 can be off.
+        fives.push({ name: r.name, pity: pity5, time: r.time, result, unsure: !fives.length });
+        pity5 = 0; pity4 = 0;
+      }
+    }
+    out.pools[key] = {
+      name: POOL_LABELS[key] || key, total: recs.length, pity5, pity4,
+      guaranteed: key === "1" && lostLast, fives: fives.reverse(),
+      avg: fives.length ? Math.round((fives.reduce((s, f) => s + f.pity, 0) / fives.length) * 10) / 10 : null,
+      won: fives.filter((f) => f.result === "won").length, lost: fives.filter((f) => f.result === "lost").length,
+      astrite: recs.length * 160,
+    };
+  }
+  return out;
+}
+
+/* Backup of everything kept in this browser. */
+function exportData() {
+  const data = { app: "wuwa-pull-planner", version: 2, plan, historyRaw: loadRawHistory() };
+  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `wuwa-planner-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function importData(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (d.app !== "wuwa-pull-planner") throw new Error("This is not a planner backup.");
+      plan = migrate({ ...structuredClone(DEFAULT_PLAN), ...d.plan });
+      if (d.historyRaw && !online) {
+        localStorage.setItem("wuwaHistoryRaw", JSON.stringify(d.historyRaw));
+        history = analyzeHistory(d.historyRaw);
+      }
+      plan.model = setModel(plan.model); fillModel(); $("#serverSel").value = plan.server;
+      save(); fillInputs(); renderSources(); renderHistory(); setStatus(); pityNote(); calculate();
+      msg("Backup restored.", true);
+    } catch (e) { msg("Could not read the backup: " + e.message, false); }
+  };
+  r.readAsText(file);
+}
+
+/* ---------------------------------------------------------------- Resources and targets */
+function goalCounts(goals) {
+  let N = 0, M = 0;
+  for (const g of goals || []) { if (g.type === "weapon") M++; else N++; }
+  return { N, M };
+}
+
+const dailyRate = (p) => (p.dailies ? 60 : 0) + (p.sub ? 90 : 0);
+const goalEnd = (p, g) => (isoOk(g.end) ? g.end : p.endDate);
+const clampPity = (v) => Math.max(0, Math.min(HARD - 1, +v || 0));
+
+/* Pull order: earliest banner end first; within one banner resonators before weapons, then the order you set. */
+function orderedGoals(p = plan) {
+  return (p.goals || []).map((g, i) => ({ g, i, end: goalEnd(p, g) }))
+    .sort((x, y) => (x.end < y.end ? -1 : x.end > y.end ? 1 : 0) || ((x.g.type === "weapon") - (y.g.type === "weapon")) || x.i - y.i);
+}
+
+/* Last banner end of all targets (or the default end without targets). */
+function horizon(p = plan) {
+  let h = p.endDate;
+  for (const g of p.goals || []) { const e = goalEnd(p, g); if (isoOk(e) && (!isoOk(h) || e > h)) h = e; }
+  return h;
+}
+
+/* Days on which you still collect daily Astrite until (and including) the end day. */
+function incomeDays(p, end) {
+  if (!isoOk(end)) return 0;
+  return Math.max(0, dayNum(end) - serverToday(p) + (p.todayClaimed ? 0 : 1));
+}
+const daysLeft = (p = plan, end = horizon(p)) => (isoOk(end) ? Math.max(0, dayNum(end) - serverToday(p)) : 0);
+const sourceCounts = (s, end) => s.on && (!isoOk(s.date) || s.date <= end);
+
+/* Astrite you have by the end of a banner. daily overrides the daily income. */
+function astriteBy(p, end, daily) {
+  let a = (+p.astrite || 0) + (p.useLunite ? (+p.lunite || 0) : 0);
+  for (const s of p.sources || []) if (sourceCounts(s, end)) a += +s.astrite || 0;
+  return a + incomeDays(p, end) * (daily ?? dailyRate(p));
+}
+const budgetPulls = (p, end, daily) => Math.floor(astriteBy(p, end, daily) / PULL);
+
+function resources(p = plan, dailyOverride) {
+  const end = horizon(p);
+  const days = incomeDays(p, end);
+  const daily = dailyOverride ?? dailyRate(p);
+  let srcA = 0, srcT = 0;
+  for (const s of p.sources || []) {
+    if (s.on) srcT += +s.tides || 0;
+    if (sourceCounts(s, end)) srcA += +s.astrite || 0;
+  }
+  const lun = p.useLunite ? (+p.lunite || 0) : 0;
+  const now = (+p.astrite || 0) + lun;
+  const total = now + srcA + days * daily;
+  return {
+    end, days, daily, srcA, srcT, now, lun,
+    income: days * daily,
+    totalAstrite: total,
+    A: Math.floor(total / PULL),
+    R: (+p.radiant || 0) + srcT,
+    F: +p.forging || 0,
+  };
+}
+
+/* Small cache: the same plan is evaluated many times per render. */
+const evalCache = new Map();
+function planKey(p) {
+  return JSON.stringify([p.astrite, p.lunite, p.useLunite, p.radiant, p.forging, p.endDate, p.dailies, p.sub,
+    p.goals, p.charPity, p.guaranteed, p.weaponPity, p.sources, p.server, p.todayClaimed, p.model, serverToday(p)]);
+}
+
+/* Full evaluation. opt.daily replaces the daily income, opt.extra adds pulls to every deadline. */
+function evalPlan(p, opt = {}) {
+  const key = planKey(p) + "|" + (opt.daily ?? "") + "|" + (opt.extra || 0);
+  if (evalCache.has(key)) return evalCache.get(key);
+  const r = resources(p, opt.daily);
+  const og = orderedGoals(p);
+  const cp = clampPity(p.charPity), wp = clampPity(p.weaponPity), g = !!p.guaranteed;
+  let nc = 0, nw = 0, wc = 0, ww = 0, miss = -Infinity, slack = Infinity;
+  const steps = [], per = [];
+  for (const x of og) {
+    const isW = x.g.type === "weapon";
+    let dist;
+    if (isW) { dist = firstPassage(1, nw ? 0 : wp, false, false); ww += nw ? HARD : HARD - wp; nw++; }
+    else { dist = firstPassage(1, nc ? 0 : cp, nc ? false : g, true); wc += nc ? 2 * HARD : (HARD - cp) + (g ? 0 : HARD); nc++; }
+    const budget = budgetPulls(p, x.end, opt.daily) + (opt.extra || 0);
+    const need = Math.max(0, wc - r.R) + Math.max(0, ww - r.F); // Astrite pulls for the worst case so far
+    miss = Math.max(miss, need - budget);
+    slack = Math.min(slack, budget - need);
+    steps.push({ kind: isW ? "weapon" : "char", dist, budget });
+    per.push({ goal: x.g, idx: x.i, end: x.end, need, budget, worst: wc + ww, miss });
+  }
+  const worstA = Math.max(0, wc - r.R) + Math.max(0, ww - r.F);
+  const dp = planDP(steps, r.R, r.F, worstA);
+  per.forEach((x, i) => { x.prob = dp.probs[i]; x.guaranteed = x.miss <= 0; x.missPulls = Math.max(0, x.miss); });
+  const last = per[per.length - 1];
+  // the deadline where the worst case is furthest away
+  let tight = null;
+  for (const x of per) if (!tight || x.need - x.budget > tight.need - tight.budget) tight = x;
+  const ev = {
+    r, N: nc, M: nw, per, steps, worstA, Wc: wc, Ww: ww,
+    prob: last ? last.prob : 1,
+    worst: wc + ww, needPulls: worstA,
+    guaranteed: last ? last.guaranteed : true,
+    missPulls: last ? last.missPulls : 0,
+    slack: per.length ? slack : 0, tight,
+    totalPulls: r.A + r.R + r.F,
+    groups: new Set(og.map((x) => x.end)).size,
+  };
+  if (evalCache.size > 400) evalCache.clear();
+  evalCache.set(key, ev);
+  return ev;
+}
+
+/* Chance to have every target up to and including each one (in pull order). */
+function goalChances(p = plan) {
+  return evalPlan(p).per.map((x, i) => ({ goal: x.goal, idx: i, ev: x }));
+}
+
+/* Chance by total pulls. With one banner end this is exact for every pull count;
+   with several ends the extra (or missing) pulls are added to every deadline. */
+function buildCurve(p, ev) {
+  const r = ev.r, base = r.R + r.F;
+  if (!ev.steps.length) return [];
+  const maxA = Math.max(r.A, ev.worstA) + 5;
+  const pts = [];
+  if (ev.groups === 1) {
+    const d = planDP(ev.steps.map((s) => ({ ...s, budget: ev.worstA })), r.R, r.F, ev.worstA).dist;
+    const C = cumulative(d);
+    for (let a = 0; a <= maxA; a++) pts.push({ x: a + base, y: C[Math.min(a, C.length - 1)] });
+  } else {
+    const step = Math.max(1, Math.ceil(maxA / 48));
+    const xs = new Set([r.A, maxA]);
+    for (let a = 0; a <= maxA; a += step) xs.add(a);
+    for (const a of [...xs].sort((u, v) => u - v)) pts.push({ x: a + base, y: a === r.A ? ev.prob : evalPlan(p, { extra: a - r.A }).prob });
+  }
+  return pts;
+}
+
+/* Lowest total Astrite per day so that the chance reaches target. 0 = already reached, Infinity = not possible in time. */
+const dailyCache = new Map();
+function dailyFor(p, target) {
+  if (!(p.goals || []).length) return 0;
+  const key = planKey(p) + "|" + target;
+  if (dailyCache.has(key)) return dailyCache.get(key);
+  let res;
+  if (target >= 1) {
+    res = 0;
+    for (const x of evalPlan(p, { daily: 0 }).per) {
+      const gap = x.need * PULL - astriteBy(p, x.end, 0);
+      if (gap <= 0) continue;
+      const d = incomeDays(p, x.end);
+      if (d <= 0) { res = Infinity; break; }
+      res = Math.max(res, Math.ceil(gap / d));
+    }
+  } else {
+    const ok = (d) => evalPlan(p, { daily: d }).prob >= target - 1e-9;
+    if (ok(0)) res = 0;
+    else {
+      let lo = 0, hi = 500;
+      while (!ok(hi) && hi < 100000) { lo = hi; hi *= 2; }
+      if (!ok(hi)) res = Infinity;
+      else {
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ok(mid)) hi = mid; else lo = mid; }
+        res = hi;
+      }
+    }
+  }
+  if (dailyCache.size > 200) dailyCache.clear();
+  dailyCache.set(key, res);
+  return res;
+}
+
+/* ---------------------------------------------------------------- Frame */
+let calcTimer = null;
+function scheduleCalc() {
+  clearTimeout(calcTimer);
+  calcTimer = setTimeout(calculate, 60);
+}
+
+function showPage(p) {
+  if (!PAGES[p]) p = "overview";
+  page = p;
+  $$(".page").forEach((s) => s.classList.toggle("hidden", s.id !== "page-" + p));
+  $$(".nav").forEach((b) => {
+    const on = b.dataset.page === p;
+    b.classList.toggle("on", on);
+    const img = b.querySelector("img");
+    if (!img.dataset.light) img.dataset.light = img.getAttribute("src");
+    img.src = on ? img.dataset.dark : img.dataset.light;
+  });
+  $("#pageTitle").textContent = PAGES[p][0];
+  $("#pageSub").textContent = PAGES[p][1];
+  try { localStorage.setItem("wuwaPage", p); } catch (e) { /* ignore */ }
+  if (p === "images") renderImagesPage();
+  calculate();
+  window.scrollTo({ top: 0 });
+}
+
+function calculate() {
+  const ev = evalPlan(plan);
+  const r = ev.r;
+  const g = !!plan.guaranteed;
+  const cp = clampPity(plan.charPity), wp = clampPity(plan.weaponPity);
+
+  $("#pAstrite").textContent = fmt(+plan.astrite || 0);
+  $("#pLunite").textContent = fmt(+plan.lunite || 0);
+  $("#pRadiant").textContent = fmt(+plan.radiant || 0);
+  $("#pForging").textContent = fmt(+plan.forging || 0);
+
+  // Resources page
+  $("#incomeNote").innerHTML = r.days > 0
+    ? `<b>${r.days}</b> days × ${r.daily} Astrite = <b>${fmt(r.income)}</b> Astrite (${fmt(r.income / PULL)} pulls) until <b>${fmtDate(r.end)}</b>`
+    : "The last banner end is not in the future.";
+  $("#serverNote").innerHTML = serverText();
+  const later = (plan.sources || []).filter((s) => s.on && isoOk(s.date) && s.date > r.end).length;
+  $("#sourceNote").innerHTML = `Counted until ${fmtDate(r.end)}: <b>${fmt(r.srcA)}</b> Astrite` + (r.srcT ? ` + <b>${r.srcT}</b> Radiant Tides` : "") +
+    (later ? `. ${later} source${later > 1 ? "s come" : " comes"} after your last banner end.` : "");
+
+  renderOverview(ev, r, cp, wp, g);
+  if (page === "analysis") renderAnalysis(ev, r, cp, g);
+  if (page === "scenarios") renderScenarios(ev);
+  if (page === "history") renderLuck();
+  if (page === "teams") renderTeamsPage();
+}
+
+function serverText() {
+  const s = serverOf(plan);
+  const now = Date.now() + s.utc * 3600000;
+  const toReset = 86400000 - ((now - RESET_HOUR * 3600000) % 86400000 + 86400000) % 86400000;
+  const h = Math.floor(toReset / 3600000), m = Math.floor((toReset % 3600000) / 60000);
+  const t = new Date(now).toISOString().slice(11, 16);
+  return `Server time ${t} (UTC${s.utc >= 0 ? "+" : ""}${s.utc}). Next daily reset in <b>${h} h ${m} min</b>.`;
+}
+
+/* ---------------------------------------------------------------- Overview */
+const bannerOf = (end) => BANNERS.find((b) => b.end === end);
+function endLabel(end) {
+  const b = bannerOf(end);
+  return b ? `${esc(b.label)} · ${fmtShort(end)}` : `until ${fmtShort(end)}`;
+}
+
+function renderOverview(ev, r, cp, wp, g) {
+  renderGoals(ev);
+
+  const has = ev.N + ev.M > 0;
+  $("#oChance").textContent = has ? pct(ev.prob) : "–";
+  $("#oChance").className = "sbig gold";
+  $("#oChanceBar").style.width = (has ? ev.prob * 100 : 0) + "%";
+  $("#oChanceSub").innerHTML = has
+    ? `with <b>${ev.totalPulls}</b> pulls until <b>${fmtDate(r.end)}</b>` + (ev.groups > 1 ? ", each target by its own banner end" : "")
+    : "Add a target on the left.";
+
+  const gEl = $("#oGuar");
+  if (!has) { gEl.textContent = "–"; gEl.className = "sbig"; $("#oGuarSub").textContent = ""; $("#oGuarBar").style.width = "0%"; }
+  else if (ev.guaranteed) {
+    gEl.textContent = "Safe"; gEl.className = "sbig good";
+    $("#oGuarSub").innerHTML = `Even in the worst case (<b>${ev.worst}</b> pulls) at least <b>${ev.slack}</b> pulls are left over.`;
+    $("#oGuarBar").style.width = "100%";
+  } else {
+    gEl.innerHTML = `${ev.missPulls}<small>pulls short</small>`; gEl.className = "sbig";
+    const d = dailyFor(plan, 1);
+    const t = ev.tight && ev.groups > 1 ? ` The tightest end is <b>${fmtDate(ev.tight.end)}</b>.` : "";
+    $("#oGuarSub").innerHTML = `Worst case: <b>${ev.worst}</b> pulls.${t} ` +
+      (isFinite(d) ? `Safe with <b>${fmt(d)}</b> Astrite per day.` : "Not reachable in time with daily income.");
+    $("#oGuarBar").style.width = Math.min(100, (ev.totalPulls / Math.max(1, ev.worst)) * 100) + "%";
+  }
+
+  const t = DAY_TARGETS.find((x) => x.k === +plan.dayTarget) || DAY_TARGETS[0];
+  $("#oFarmTarget").textContent = t.label;
+  const fEl = $("#oFarm");
+  if (!has) { fEl.textContent = "–"; fEl.className = "sbig"; $("#oFarmSub").textContent = ""; }
+  else {
+    const d = dailyFor(plan, t.k);
+    if (d === 0) { fEl.innerHTML = `0<small>Astrite / day</small>`; fEl.className = "sbig good"; $("#oFarmSub").innerHTML = "Already reached with your inventory and one-time sources."; }
+    else if (!isFinite(d)) { fEl.textContent = "–"; fEl.className = "sbig bad"; $("#oFarmSub").textContent = "Not reachable in time: a banner ends before enough Astrite comes in."; }
+    else {
+      const ok = d <= r.daily;
+      fEl.innerHTML = `${fmt(d)}<small>Astrite / day</small>`; fEl.className = "sbig" + (ok ? " good" : "");
+      $("#oFarmSub").innerHTML = ok ? `Your income (${r.daily} / day) is enough.` : `<b>${fmt(d - r.daily)}</b> more than your ${r.daily} from dailies and subscription.`;
+    }
+  }
+
+  drawRing($("#ringChar"), cp); $("#rcVal").textContent = cp;
+  drawRing($("#ringWeap"), wp); $("#rwVal").textContent = wp;
+  $$(".rv small").forEach((x) => { x.textContent = "/ " + HARD; });
+  $("#rcTag").textContent = g ? "Guarantee active" : "50/50";
+  $("#rwTag").textContent = "100% featured";
+
+  // Where the pulls come from
+  const parts = [
+    ["Inventory", Math.floor((+plan.astrite || 0) / PULL), "#f0c86e"],
+    ["Lunite", Math.floor(r.lun / PULL), "#b98cff"],
+    ["Dailies + subscription", Math.floor(r.income / PULL), "#f2efe6"],
+    ["Other sources", Math.floor(r.srcA / PULL), "#7ed6ce"],
+    ["Tides", r.R + r.F, "#c48e3a"],
+  ].filter((p) => p[1] > 0);
+  const sum = parts.reduce((s, p) => s + p[1], 0) || 1;
+  $("#oPulls").textContent = ev.totalPulls;
+  $("#oStack").innerHTML = parts.map((p) => `<i style="width:${(p[1] / sum) * 100}%;background:${p[2]}"></i>`).join("");
+  $("#oLegend").innerHTML = parts.map((p) => `<span style="--c:${p[2]}">${p[0]}</span><b>${p[1]}</b>`).join("");
+
+  $("#oDays").textContent = daysLeft(plan, r.end);
+  const b = bannerOf(r.end);
+  $("#oDate").innerHTML = `until <b>${fmtDate(r.end)}</b>` + (b ? ` · ${esc(b.label)}` : "");
+  $("#oDayKv").innerHTML = [
+    ["Per day", `${r.daily} Astrite`],
+    ["Until the end", `${fmt(r.income)} Astrite`],
+    ["Total Astrite", fmt(r.totalAstrite)],
+  ].map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join("");
+}
+
+function fmtDate(iso) {
+  if (!iso) return "–";
+  const d = iso instanceof Date ? iso : new Date(iso + "T00:00:00");
+  return isNaN(d) ? "–" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+function fmtShort(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? "–" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+const isDefaultWeapon = (n) => !n || /^(signature weapon|weapon)$/i.test(String(n).trim());
+
+function renderGoals(ev) {
+  const box = $("#goals");
+  const og = orderedGoals(plan);
+  const html = ev.per.map((x, i) => {
+    const gl = x.goal, idx = x.idx, isW = gl.type === "weapon";
+    const prev = og[i - 1];
+    const canMove = prev && prev.end === x.end && (prev.g.type === "weapon") === isW;
+    const gtxt = x.guaranteed ? `<span class="good">guaranteed</span>` : `${x.missPulls} pulls short of a guarantee`;
+    const img = isW && gl.for && isDefaultWeapon(gl.name) ? gl.for : gl.name;
+    return `<div class="goal">
+      <div class="card">
+        ${portrait(isW ? "weapons" : "resonators", img)}
+        <div class="num">${i + 1}</div>
+        <img class="type" src="assets/${isW ? "ic_sword" : "ic_person"}.png" alt="">
+        <div class="tools">${canMove ? `<button class="mv" data-mv="${idx}" title="Pull earlier" aria-label="Pull earlier"></button>` : ""}<button class="rm" data-rm="${idx}" title="Remove" aria-label="Remove"></button></div>
+        <div class="nm">${esc(gl.name || (isW ? "Weapon" : "Resonator"))}${isW && gl.for ? `<small>for ${esc(gl.for)}</small>` : ""}</div>
+      </div>
+      <button class="gend" data-edit="${idx}" title="Change target or banner end">${endLabel(x.end)}</button>
+      <div class="gfoot">
+        <div class="gp"><span>${i === 0 ? "Chance" : "up to here"}</span><b>${pct(x.prob)}</b></div>
+        <div class="bar"><div class="fill${i === ev.per.length - 1 ? "" : " cyanfill"}" style="width:${x.prob * 100}%"></div></div>
+        <div class="gg">${gtxt}</div>
+      </div>
+    </div>`;
+  }).join("");
+  box.innerHTML = html + `<button class="addcard" id="btnAddGoal">Add target</button>`;
+  box.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { plan.goals.splice(+b.dataset.rm, 1); save(); calculate(); });
+  box.querySelectorAll("[data-mv]").forEach((b) => b.onclick = () => moveGoal(+b.dataset.mv));
+  box.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => openGoalModal(+b.dataset.edit));
+  $("#btnAddGoal").onclick = () => openGoalModal(-1);
+}
+
+/* Pull a target one step earlier (only within the same banner end and type). */
+function moveGoal(idx) {
+  const og = orderedGoals(plan);
+  const pos = og.findIndex((x) => x.i === idx);
+  const prev = og[pos - 1];
+  if (!prev || prev.end !== og[pos].end) return;
+  const j = prev.i;
+  [plan.goals[idx], plan.goals[j]] = [plan.goals[j], plan.goals[idx]];
+  save(); calculate();
+}
+
+function openGoalModal(idx = -1) {
+  editGoal = idx;
+  const gl = idx >= 0 ? plan.goals[idx] : null;
+  const names = new Set(RESONATORS.filter((c) => c.r === 5).map((c) => c.n));
+  for (const c of ["resonators", "weapons"]) for (const f of images?.cats?.[c]?.files || []) names.add(f.file.replace(/\.[^.]+$/, ""));
+  for (const p of Object.values(history?.pools || {})) for (const f of p.fives || []) names.add(f.name);
+  $("#nameList").innerHTML = [...names].sort().map((n) => `<option value="${esc(n)}">`).join("");
+  $("#resList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}">`).join("");
+  $("#goalName").value = gl ? gl.name : "";
+  $("#goalFor").value = gl?.for || "";
+  $("#goalMsg").textContent = "";
+  setGoalType(gl && gl.type === "weapon" ? "weapon" : "char");
+  fillBannerSelect(gl ? gl.end : null);
+  $("#goalTitle").textContent = gl ? "Edit target" : "Add target";
+  $("#goalOkTxt").textContent = gl ? "Save" : "Add";
+  $("#goalModal").classList.remove("hidden");
+  setTimeout(() => $("#goalName").focus(), 30);
+}
+
+function fillBannerSelect(end) {
+  const today = isoOf(serverToday());
+  const sel = $("#goalBanner");
+  sel.innerHTML = [`<option value="">Default end (${fmtDate(plan.endDate)})</option>`]
+    .concat(BANNERS.filter((b) => b.end >= today).map((b) => `<option value="${b.end}">${esc(b.label)} (until ${fmtDate(b.end)})</option>`))
+    .concat([`<option value="custom">Other date …</option>`]).join("");
+  if (!isoOk(end)) sel.value = "";
+  else if (BANNERS.some((b) => b.end === end && b.end >= today)) sel.value = end;
+  else { sel.value = "custom"; $("#goalEnd").value = end; }
+  $("#goalEndWrap").classList.toggle("hidden", sel.value !== "custom");
+}
+
+/* Pick the banner of a resonator automatically while typing. */
+function suggestBanner() {
+  const sel = $("#goalBanner");
+  if (sel.value !== "") return;
+  const c = (goalType === "weapon" && findResonator($("#goalFor").value)) || findResonator($("#goalName").value);
+  if (!c) return;
+  const today = isoOf(serverToday());
+  const b = BANNERS.find((x) => x.end >= today && x.resonators.includes(c.n));
+  if (b) sel.value = b.end;
+}
+
+function setGoalType(t) {
+  goalType = t;
+  $$("#goalType .btn").forEach((b) => b.classList.toggle("on", b.dataset.type === t));
+  $("#goalForWrap").classList.toggle("hidden", t !== "weapon");
+  $("#goalName").placeholder = t === "weapon" ? "Weapon name (optional)" : "e.g. Hiyuki";
+}
+
+function addGoal() {
+  const isW = goalType === "weapon";
+  let name = $("#goalName").value.trim();
+  let forN = $("#goalFor").value.trim();
+  if (isW) {
+    const fc = findResonator(forN);
+    if (fc) forN = fc.n;
+    if (!name) name = "Signature weapon";
+  } else {
+    const c = findResonator(name);
+    if (c) name = c.n;
+    if (!name) name = "Resonator";
+  }
+  const sel = $("#goalBanner").value;
+  const end = sel === "custom" ? $("#goalEnd").value : sel;
+  if (sel === "custom" && !isoOk(end)) { $("#goalMsg").textContent = "Pick a date."; return; }
+  const g = { type: isW ? "weapon" : "char", name: name.slice(0, 40) };
+  if (isW && forN) g.for = forN.slice(0, 40);
+  if (isoOk(end)) g.end = end;
+  if (!Array.isArray(plan.goals)) plan.goals = [];
+  if (editGoal >= 0 && plan.goals[editGoal]) plan.goals[editGoal] = g; else plan.goals.push(g);
+  $("#goalModal").classList.add("hidden");
+  save(); calculate();
+}
+
+/* ---------------------------------------------------------------- Analysis */
+const DAY_TARGETS = [
+  { k: 0.5, label: "50%" },
+  { k: 0.75, label: "75%" },
+  { k: 0.9, label: "90%" },
+  { k: 1, label: "Guarantee" },
+];
+
+const curveCache = new Map();
+function curveFor(ev) {
+  const key = planKey(plan);
+  if (!curveCache.has(key)) { curveCache.clear(); curveCache.set(key, buildCurve(plan, ev)); }
+  return curveCache.get(key);
+}
+
+function renderAnalysis(ev, r, cp, g) {
+  renderDayGoal(ev);
+  const has = ev.N + ev.M > 0;
+  const curve = has ? curveFor(ev) : [];
+  drawChart(curve, ev.totalPulls, ev.worst, ev.prob, has);
+  $("#chartNote").textContent = ev.groups > 1
+    ? "Your targets have different banner ends. Each point adds or removes the same number of pulls at every banner end."
+    : "";
+  const at = (x) => { const c = curve.find((p) => p.y >= x - 1e-9); return c ? c.x : ev.worst; };
+  const avg = ev.steps.reduce((s, st) => s + meanOf(st.dist), 0);
+  $("#cKv").innerHTML = [
+    ["Chance with your pulls", has ? pct(ev.prob) : "–"],
+    ["Needed on average", has ? `${Math.round(avg)} pulls` : "–"],
+    ["50% chance from", has ? `${at(0.5)} pulls` : "–"],
+    ["90% chance from", has ? `${at(0.9)} pulls` : "–"],
+    ["Guarantee from", has ? `${ev.worst} pulls` : "–"],
+    ["Your pulls (Astrite / Tides)", `${ev.totalPulls} (${r.A} / ${r.R + r.F})`],
+  ].map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join("");
+
+  const K = Math.min(8, Math.max(3, ev.N + 1));
+  const dist = copiesDist(r.A + r.R, cp, g, K);
+  let rows = "";
+  for (let k = 1; k <= K; k++) {
+    let p = 0;
+    for (let w = k; w <= K; w++) p += dist[w];
+    rows += `<div class="krow${k === ev.N ? " goal" : ""}"><span>at least ${k}</span><div class="bar"><div class="fill${k === ev.N ? "" : " cyanfill"}" style="width:${p * 100}%"></div></div><b>${pct(p)}</b></div>`;
+  }
+  $("#kTable").innerHTML = rows;
+}
+
+function renderDayGoal(ev) {
+  const seg = $("#daySeg");
+  seg.innerHTML = DAY_TARGETS.map((t) => `<button class="btn${+plan.dayTarget === t.k ? " on" : ""}" data-t="${t.k}">${t.label}</button>`).join("");
+  seg.querySelectorAll("button").forEach((b) => {
+    b.onclick = () => { plan.dayTarget = +b.dataset.t; save(); calculate(); };
+  });
+  const big = $("#dBig"), cap = $("#dCap"), bar = $("#dBar"), kv = $("#dKv"), tab = $("#dTable");
+  if (ev.N + ev.M === 0) {
+    big.className = "sbig"; big.textContent = "–"; cap.textContent = "Add a target on the Overview.";
+    bar.style.width = "0%"; kv.innerHTML = ""; tab.innerHTML = "";
+    return;
+  }
+  const t = DAY_TARGETS.find((x) => x.k === +plan.dayTarget) || DAY_TARGETS[0];
+  const d = dailyFor(plan, t.k);
+  const daily = ev.r.daily, end = ev.r.end;
+  if (d === 0) {
+    big.className = "sbig good"; big.innerHTML = `0<small>Astrite / day</small>`;
+    cap.innerHTML = `For <b>${t.label}</b> your inventory and one-time sources are already enough.`;
+    bar.style.width = "100%";
+  } else if (!isFinite(d)) {
+    big.className = "sbig bad"; big.textContent = "–";
+    cap.textContent = "Not reachable in time: a banner ends before enough Astrite comes in.";
+    bar.style.width = "0%";
+  } else {
+    const ok = d <= daily;
+    big.className = "sbig" + (ok ? " good" : " gold");
+    big.innerHTML = `${fmt(d)}<small>Astrite / day</small>`;
+    cap.innerHTML = `For <b>${t.label}</b> you need <b>${fix1(d / PULL)}</b> pulls per day. You get <b>${daily}</b> Astrite from dailies and subscription.`;
+    bar.style.width = Math.min(100, (daily / d) * 100) + "%";
+  }
+  const diff = d - daily;
+  kv.innerHTML = [
+    ["Already there (without daily income)", `<b>${fmt(astriteBy(plan, end, 0))} Astrite</b>`],
+    ["Days with income until " + fmtDate(end), `<b>${incomeDays(plan, end)}</b>`],
+    ["Astrite at the end with this goal", `<b>${isFinite(d) ? fmt(astriteBy(plan, end, Math.max(d, 0))) : "–"}</b>`],
+    [diff > 0 ? "On top of your income" : "Buffer over your income",
+      d === 0 || !isFinite(d) ? "<b>–</b>" : diff > 0 ? `<b class="bad">+${fmt(diff)} / day</b>` : `<b class="good">${fmt(-diff)} / day</b>`],
+  ].map(([k, v]) => `<span>${k}</span>${v}`).join("");
+
+  tab.innerHTML = `<div class="dt head"><span>Target</span><span>Pulls</span><span>Astrite / day</span><span>Status</span></div>` +
+    DAY_TARGETS.map((x) => {
+      const dd = dailyFor(plan, x.k);
+      const pulls = isFinite(dd) ? budgetPulls(plan, end, dd) + ev.r.R + ev.r.F : "–";
+      const per = dd === 0 || !isFinite(dd) ? "–" : fmt(dd);
+      let st;
+      if (dd === 0) st = `<b class="good">reached</b>`;
+      else if (!isFinite(dd)) st = `<b class="bad">too late</b>`;
+      else if (dd <= daily) st = `<b class="good">enough</b>`;
+      else st = `<b class="bad">+${fmt(dd - daily)}</b>`;
+      return `<div class="dt${x.k === t.k ? " sel" : ""}"><span>${x.label}</span><span>${pulls}</span><span>${per}</span>${st}</div>`;
+    }).join("");
+}
+
+/* ---------------------------------------------------------------- Scenarios */
+function cloneBase(p) {
+  const c = structuredClone(p);
+  delete c.scenarios; delete c.roster; delete c.myTeams;
+  return c;
+}
+
+function variantsOf(p) {
+  const out = [];
+  const add = (name, mut) => { const c = cloneBase(p); mut(c); out.push({ name, plan: c }); };
+  const src = p.sources || [];
+  if (src.some((s) => !s.on)) add("With all sources", (c) => c.sources.forEach((s) => { s.on = true; }));
+  if (src.some((s) => s.on)) add("Without other sources", (c) => c.sources.forEach((s) => { s.on = false; }));
+  if (+p.lunite > 0) add(p.useLunite ? "Without Lunite" : "With Lunite", (c) => { c.useLunite = !p.useLunite; });
+  add(p.sub ? "Without Lunite subscription" : "With Lunite subscription", (c) => { c.sub = !p.sub; });
+  add(p.guaranteed ? "50/50 instead of guarantee" : "Guarantee instead of 50/50", (c) => { c.guaranteed = !p.guaranteed; });
+  const { N, M } = goalCounts(p.goals);
+  const chars = orderedGoals(p).filter((x) => x.g.type !== "weapon");
+  if (M > 0) add("Without weapons", (c) => { c.goals = c.goals.filter((g) => g.type !== "weapon"); });
+  else if (N > 0) {
+    const lc = chars[chars.length - 1].g;
+    add(`Plus ${lc.name}'s signature weapon`, (c) => { c.goals.push({ type: "weapon", name: "Signature weapon", for: lc.name, ...(lc.end ? { end: lc.end } : {}) }); });
+  }
+  if (N > 1) {
+    const last = chars[chars.length - 1];
+    add(`Without ${last.g.name}`, (c) => { c.goals.splice(last.i, 1); });
+  }
+  if (new Set(orderedGoals(p).map((x) => x.end)).size > 1) {
+    const h = horizon(p);
+    add("Everything by the last banner end", (c) => c.goals.forEach((g) => { g.end = h; }));
+  }
+  return out;
+}
+
+function scenRow(name, ev, base, extra = "", cls = "") {
+  const d = Math.round((ev.prob - base.prob) * 100);
+  const delta = cls === "base" ? "" : d === 0 ? "±0" : d > 0 ? "+" + d : "−" + Math.abs(d);
+  const dcls = d > 0 ? "good" : d < 0 ? "bad" : "";
+  const gar = ev.N + ev.M === 0 ? "–" : ev.guaranteed ? `<b class="good">yes</b>` : `<b class="bad">−${ev.missPulls}</b>`;
+  return `<div class="sc ${cls}">
+    <span class="nm">${esc(name)}</span>
+    <span class="num">${ev.totalPulls}</span>
+    <span class="barcell"><span class="bar"><span class="fill${cls === "base" ? "" : " cyanfill"}" style="width:${ev.prob * 100}%"></span></span></span>
+    <b class="pc">${ev.N + ev.M ? pct(ev.prob) : "–"}</b>
+    <span class="dl ${dcls}">${delta}</span>
+    <span class="num">${gar}</span>
+    <span class="act">${extra}</span>
+  </div>`;
+}
+
+function renderScenarios(evNow) {
+  const head = `<div class="sc head"><span>Scenario</span><span>Pulls</span><span></span><span>Chance</span><span>Δ</span><span>Guarantee</span><span></span></div>`;
+  let html = head + scenRow("Current plan", evNow, evNow, "", "base");
+  const vars = variantsOf(plan);
+  if (vars.length) html += `<div class="sc sect"><span>What if</span></div>`;
+  for (const v of vars) html += scenRow(v.name, evalPlan(v.plan), evNow);
+  const saved = plan.scenarios || [];
+  if (saved.length) html += `<div class="sc sect"><span>Saved</span></div>`;
+  saved.forEach((s, i) => {
+    html += scenRow(s.name, evalPlan(s.plan), evNow,
+      `<button class="mini" data-load="${i}">Load</button><button class="mini del" data-del="${i}" title="Delete" aria-label="Delete"></button>`);
+  });
+  const box = $("#scenTable");
+  box.innerHTML = html;
+  box.querySelectorAll("[data-load]").forEach((b) => b.onclick = () => loadScenario(+b.dataset.load));
+  box.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => { plan.scenarios.splice(+b.dataset.del, 1); save(); calculate(); });
+}
+
+function loadScenario(i) {
+  const s = (plan.scenarios || [])[i];
+  if (!s) return;
+  plan = migrate({
+    ...structuredClone(s.plan), scenarios: plan.scenarios, dayTarget: plan.dayTarget,
+    roster: plan.roster, myTeams: plan.myTeams, teamBuild: plan.teamBuild, usePlanned: plan.usePlanned, setSize: plan.setSize,
+  });
+  plan.model = setModel(plan.model); fillModel(); $("#serverSel").value = plan.server;
+  fillInputs(); renderSources(); save(); calculate(); pityNote();
+}
+
+function saveScenario() {
+  if (!Array.isArray(plan.scenarios)) plan.scenarios = [];
+  if (plan.scenarios.length >= 8) { $("#scenMsg").textContent = "8 scenarios at most. Delete one to make room."; return; }
+  const inp = $("#scenName");
+  const name = inp.value.trim() || `Scenario ${plan.scenarios.length + 1}`;
+  plan.scenarios.push({ name: name.slice(0, 40), plan: cloneBase(plan) });
+  inp.value = ""; $("#scenMsg").textContent = "";
+  save(); calculate();
+}
+
+/* ---------------------------------------------------------------- Roster & Teams */
+const BUILDS = [
+  { k: "casual", label: "Casual", tip: "Echoes partly built, some skills not maxed" },
+  { k: "solid", label: "Solid", tip: "Good echoes, main skills leveled" },
+  { k: "optimised", label: "Optimised", tip: "Tuned echoes and substats, everything maxed" },
+];
+const elIcon = (e) => `assets/el_${String(e).toLowerCase()}.png`;
+const seqTxt = (x) => `S${x.s | 0}`;
+const weapTxt = (x) => (x.w > 0 ? `R${x.w}` : "No sig.");
+
+/* Owned resonators as a Map name -> {s, w, planned, goalIdx}. Optionally adds pull targets. */
+function ownedMap(withPlanned = !!plan.usePlanned) {
+  const m = new Map();
+  for (const [n, v] of Object.entries(plan.roster || {})) {
+    if (RES_BY_NAME.has(n)) m.set(n, { s: v.s | 0, w: v.w | 0 });
+  }
+  if (withPlanned) {
+    // Pull order: resonators first, then weapons (so a weapon target finds its planned resonator).
+    for (const gc of goalChances()) {
+      const g = gc.goal;
+      const mark = (x) => { x.planned = true; x.goalIdx = gc.idx; x.prob = gc.ev.prob; };
+      if (g.type === "weapon") {
+        const k = normKey(g.name);
+        const c = (g.for && findResonator(g.for)) ||
+          RESONATORS.find((r) => { const rk = normKey(r.n.replace(/\s*\(.*\)/, "")); return rk.length >= 3 && k.includes(rk); });
+        const x = c && m.get(c.n);
+        if (x) { x.w = Math.min(5, x.w + 1); mark(x); }
+        continue;
+      }
+      const c = findResonator(g.name);
+      if (!c) continue;
+      const x = m.get(c.n);
+      if (x) { x.s = Math.min(6, x.s + 1); mark(x); }
+      else { const y = { s: 0, w: 0, newFromGoal: true }; mark(y); m.set(c.n, y); }
+    }
+  }
+  return m;
+}
+
+/* Probability that you own every planned member by banner end. */
+function teamPullChance(t, owned) {
+  let worst = -1, prob = 1;
+  for (const n of t.members) {
+    const x = owned.get(n);
+    if (x && x.planned && x.goalIdx > worst) { worst = x.goalIdx; prob = x.prob; }
+  }
+  return worst < 0 ? 1 : prob;
+}
+
+function setTeamTab(t) {
+  teamTab = t;
+  $$("#teamTabs .btn").forEach((b) => {
+    const on = b.dataset.ttab === t;
+    b.classList.toggle("on", on);
+    const img = b.querySelector("img");
+    if (img) img.src = on ? img.dataset.dark : img.dataset.light;
+  });
+  ["roster", "best", "mine"].forEach((k) => $("#tt-" + k).classList.toggle("hidden", k !== t));
+  try { localStorage.setItem("wuwaTeamTab", t); } catch (e) { /* ignore */ }
+  renderTeamsPage();
+}
+
+function renderTeamsPage() {
+  if (teamTab === "roster") renderRoster();
+  else if (teamTab === "best") renderBestTeams();
+  else renderMyTeams();
+}
+
+function elSegHtml(active, withAll = true) {
+  return (withAll ? [`<button class="btn${active === "All" ? " on" : ""}" data-el="All">All</button>`] : []).concat(
+    ELEMENTS.map((e) => `<button class="btn${active === e ? " on" : ""}" data-el="${e}" title="${e}"><img src="${elIcon(e)}" alt="">${e}</button>`)).join("");
+}
+
+function renderRoster() {
+  const roster = plan.roster || {};
+  const owned = Object.keys(roster).filter((n) => RES_BY_NAME.has(n));
+  const fives = owned.filter((n) => RES_BY_NAME.get(n).r === 5);
+  const sigs = owned.filter((n) => (roster[n].w | 0) > 0);
+  const teams = buildTeams(ownedMap(false), plan.teamBuild);
+  const set = bestTeamSet(teams, 2);
+  $("#rosterSum").innerHTML = [
+    ["Resonators", `${owned.length}<small>/ ${RESONATORS.length}</small>`],
+    ["5★ resonators", String(fives.length)],
+    ["Signature weapons", String(sigs.length)],
+    ["Teams you can build", String(teams.length)],
+    ["Best 2-team lineup", set ? `${pct(set.reduce((p, t) => p * t.chance, 1))}<small>clear</small>` : "–"],
+  ].map(([k, v], i) => `<div class="hs${i === 4 ? " hl" : ""}"><span>${k}</span><b>${v}</b></div>`).join("");
+
+  const seg = $("#elSeg");
+  seg.innerHTML = elSegHtml(rosterEl);
+  seg.querySelectorAll("[data-el]").forEach((b) => b.onclick = () => { rosterEl = b.dataset.el; renderRoster(); });
+
+  const q = normKey($("#rosterSearch").value);
+  const only = $("#ownedOnly").checked;
+  const list = RESONATORS
+    .filter((c) => rosterEl === "All" || c.e === rosterEl)
+    .filter((c) => !q || normKey(c.n).includes(q))
+    .filter((c) => !only || roster[c.n])
+    .sort((a, b) => (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || ELEMENTS.indexOf(a.e) - ELEMENTS.indexOf(b.e) || a.n.localeCompare(b.n));
+  $("#rosterGrid").innerHTML = list.length ? list.map((c) => {
+    const x = roster[c.n];
+    return `<div class="rc r${c.r}${x ? " owned" : ""}" data-n="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}">
+      <button class="rimg" data-toggle title="${x ? "Owned. Click to remove" : "Click to mark as owned"}">
+        ${portrait("resonators", c.n)}
+        <img class="el" src="${elIcon(c.e)}" alt="${c.e}">
+        <span class="role">${ROLE_LABEL[c.role]}</span>
+        <span class="own"></span>
+        <span class="rname">${esc(c.n)}</span>
+      </button>
+      <div class="rctl">${x ? `
+        <div class="stp" title="Sequence"><button data-d="s-1" aria-label="Lower sequence"></button><b>${seqTxt(x)}</b><button data-d="s1" aria-label="Raise sequence"></button></div>
+        <div class="stp" title="Signature weapon (none or R1 to R5)"><button data-d="w-1" aria-label="Lower refinement"></button><b class="${x.w > 0 ? "" : "dim"}">${x.w > 0 ? "R" + x.w : "None"}</b><button data-d="w1" aria-label="Raise refinement"></button></div>`
+      : `<span class="nown">Not owned</span>`}</div>
+    </div>`;
+  }).join("") : `<div class="empty">No resonator matches.</div>`;
+  $$("#rosterGrid .rc").forEach((card) => {
+    const n = card.dataset.n;
+    card.querySelector("[data-toggle]").onclick = () => {
+      if (!plan.roster) plan.roster = {};
+      if (plan.roster[n]) delete plan.roster[n]; else plan.roster[n] = { s: 0, w: 0 };
+      save(); renderRoster();
+    };
+    card.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => {
+      const d = b.dataset.d, x = plan.roster[n];
+      const k = d[0], step = +d.slice(1);
+      if (k === "s") x.s = Math.max(0, Math.min(6, (x.s | 0) + step));
+      else x.w = Math.max(0, Math.min(5, (x.w | 0) + step));
+      save(); renderRoster();
+    });
+  });
+}
+
+function importRosterFromHistory() {
+  const box = $("#rosterMsg");
+  const counts = history?.counts;
+  if (!counts || !Object.keys(counts).length) {
+    box.className = "msg err";
+    box.textContent = "No history loaded yet. Click Fetch history first.";
+    return;
+  }
+  if (!plan.roster) plan.roster = {};
+  let added = 0, raised = 0;
+  for (const [name, n] of Object.entries(counts)) {
+    const c = findResonator(name);
+    if (!c) continue;
+    const s = Math.min(6, Math.max(0, n - 1));
+    const cur = plan.roster[c.n];
+    if (!cur) { plan.roster[c.n] = { s, w: 0 }; added++; }
+    else if (s > (cur.s | 0)) { cur.s = s; raised++; }
+  }
+  save(); renderRoster();
+  box.className = "msg ok";
+  box.textContent = added || raised ? `Done: ${added} added, ${raised} sequences raised.` : "Your roster already matches your history.";
+}
+
+/* One team row. opts: {owned, custom, idx} */
+function teamRow(t, owned, opts = {}) {
+  const slots = [0, 1, 2].map((i) => t.members[i] || null);
+  const pull = teamPullChance(t, owned);
+  const overall = t.chance * pull;
+  const mem = slots.map((n, i) => {
+    if (!n) return `<button class="tm empty" ${opts.custom ? `data-slot="${i}"` : ""}><span class="plus"></span><span class="tmn">Empty</span></button>`;
+    const c = RES_BY_NAME.get(n), x = owned.get(n) || { s: 0, w: 0 };
+    const tag = n === t.carry ? `<span class="ctag">Carry</span>` : "";
+    return `<${opts.custom ? `button data-slot="${i}"` : "div"} class="tm${x.planned ? " planned" : ""}" style="--el:${EL_COLOR[c.e]}">
+      <span class="tmimg">${portrait("resonators", n)}<img class="el" src="${elIcon(c.e)}" alt="">${tag}</span>
+      <span class="tmn">${esc(n)}</span>
+      <span class="tmv">${x.newFromGoal ? "Target" + (x.s ? " " + seqTxt(x) : "") : seqTxt(x)} · ${weapTxt(x)}</span>
+    </${opts.custom ? "button" : "div"}>`;
+  }).join("");
+  const tierCls = t.template ? "t" + t.template.tier.replace(".", "") : "tx";
+  const tierTxt = t.template ? t.template.tier : "–";
+  const name = t.template ? t.template.name : "Custom team";
+  const plannedTxt = t.planned.length ? `<span class="pbadge">Needs pull: ${t.planned.map(esc).join(", ")}</span>` : "";
+  const head = opts.custom
+    ? `<div class="ttop"><input type="text" class="tnamein" data-name="${opts.idx}" maxlength="32" value="${esc(opts.name || "")}" placeholder="Team name"><button class="mini del" data-delteam="${opts.idx}" title="Delete team" aria-label="Delete team"></button></div>
+       <div class="tsub"><span class="tier ${tierCls}">${tierTxt}</span><span>${t.template ? (t.exact ? "" : "Closest: ") + esc(name) : "No known archetype"}</span>${plannedTxt}</div>`
+    : `<div class="ttop"><span class="tier ${tierCls}">${tierTxt}</span><b class="tname">${esc(name)}</b>${plannedTxt}</div>`;
+  const notes = t.notes.length ? `<ul class="tnotes">${t.notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+  return `<div class="team${opts.custom ? " custom" : ""}">
+    <div class="tmem">${mem}</div>
+    <div class="tinfo">
+      ${head}
+      <div class="tline"><span>Power <b>${t.power}</b></span><span>Grade <b class="grade g${t.grade}">${t.grade}</b></span><span class="tparts">Team ${t.base} · Investment +${t.inv}${t.adj ? ` · Build ${t.adj > 0 ? "+" : "−"}${Math.abs(t.adj)}` : ""}</span></div>
+      ${notes}
+    </div>
+    <div class="tchance">
+      <div class="label" title="Estimate from community tier lists">Clear chance <em>est.</em></div>
+      <div class="tc ${t.chance >= 0.8 ? "good" : t.chance < 0.4 ? "bad" : ""}">${pct(t.chance)}</div>
+      <div class="bar"><div class="fill${t.chance >= 0.8 ? " cyanfill" : ""}" style="width:${t.chance * 100}%"></div></div>
+      ${pull < 1 ? `<div class="ssub">With pull chance <b>${pct(overall)}</b></div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderBestTeams() {
+  const bs = $("#buildSeg");
+  bs.innerHTML = BUILDS.map((b) => `<button class="btn${plan.teamBuild === b.k ? " on" : ""}" data-b="${b.k}" title="${b.tip}">${b.label}</button>`).join("");
+  bs.querySelectorAll("[data-b]").forEach((b) => b.onclick = () => { plan.teamBuild = b.dataset.b; save(); renderBestTeams(); });
+  $("#usePlanned").checked = !!plan.usePlanned;
+
+  const owned = ownedMap();
+  const teams = buildTeams(owned, plan.teamBuild);
+  const ss = $("#setSeg");
+  ss.innerHTML = [2, 3].map((k) => `<button class="btn${+plan.setSize === k ? " on" : ""}" data-size="${k}">${k} teams</button>`).join("");
+  ss.querySelectorAll("[data-size]").forEach((b) => b.onclick = () => { plan.setSize = +b.dataset.size; save(); renderBestTeams(); });
+
+  const set = bestTeamSet(teams, +plan.setSize || 2);
+  const setBox = $("#teamSet");
+  if (!teams.length) {
+    setBox.innerHTML = `<div class="empty">Mark the resonators you own on the Roster tab first.</div>`;
+  } else if (!set) {
+    setBox.innerHTML = `<div class="empty">You need more resonators for ${plan.setSize} separate teams.</div>`;
+  } else {
+    const all = set.reduce((p, t) => p * t.chance * teamPullChance(t, owned), 1);
+    setBox.innerHTML = `<div class="setsum"><span>All ${set.length} teams clear</span><b>${pct(all)}</b><div class="bar"><div class="fill" style="width:${all * 100}%"></div></div></div>` +
+      set.map((t) => teamRow(t, owned)).join("");
+  }
+  const list = $("#autoList");
+  list.innerHTML = teams.length ? teams.slice(0, autoShown).map((t) => teamRow(t, owned)).join("") : `<div class="empty">No teams yet.</div>`;
+  $("#btnMoreTeams").classList.toggle("hidden", teams.length <= autoShown);
+}
+
+function renderMyTeams() {
+  const owned = ownedMap();
+  const box = $("#myTeams");
+  const teams = plan.myTeams || [];
+  box.innerHTML = teams.length ? teams.map((mt, i) => {
+    const members = (mt.members || []).filter(Boolean);
+    const sc = members.length ? scoreTeam(members, (n) => owned.get(n) || { s: 0, w: 0 }, plan.teamBuild) : null;
+    const t = sc ? { ...sc, members: mt.members.slice(0, 3) } : { members: [null, null, null], notes: ["Click a slot to pick a resonator."], planned: [], template: null, power: 0, grade: "–", chance: 0, base: 0, inv: 0, adj: 0, carry: null };
+    const missing = members.filter((n) => !owned.has(n));
+    if (missing.length) t.notes = [`Not in your roster: ${missing.join(", ")}.`, ...t.notes];
+    return `<div class="panel">${teamRow(t, owned, { custom: true, idx: i, name: mt.name })}</div>`;
+  }).join("") : `<div class="panel"><div class="empty">No teams yet. Click New team and pick three resonators.</div></div>`;
+
+  box.querySelectorAll("[data-slot]").forEach((b) => {
+    const ti = +b.closest(".team").querySelector("[data-name]").dataset.name;
+    b.onclick = () => openPicker(ti, +b.dataset.slot);
+  });
+  box.querySelectorAll("[data-name]").forEach((inp) => inp.addEventListener("input", () => { plan.myTeams[+inp.dataset.name].name = inp.value; save(); }));
+  box.querySelectorAll("[data-delteam]").forEach((b) => b.onclick = () => { plan.myTeams.splice(+b.dataset.delteam, 1); save(); renderMyTeams(); });
+}
+
+function newTeam() {
+  if (!Array.isArray(plan.myTeams)) plan.myTeams = [];
+  if (plan.myTeams.length >= 12) return;
+  plan.myTeams.push({ name: `Team ${plan.myTeams.length + 1}`, members: [null, null, null] });
+  save(); renderMyTeams();
+  openPicker(plan.myTeams.length - 1, 0);
+}
+
+function openPicker(teamIdx, slot) {
+  pickTarget = { teamIdx, slot };
+  pickEl = "All";
+  $("#pickSearch").value = "";
+  $("#pickTitle").textContent = `Choose resonator ${slot + 1}`;
+  renderPicker();
+  $("#pickModal").classList.remove("hidden");
+  setTimeout(() => $("#pickSearch").focus(), 30);
+}
+
+function renderPicker() {
+  const owned = ownedMap();
+  const seg = $("#pickEl");
+  seg.innerHTML = elSegHtml(pickEl);
+  seg.querySelectorAll("[data-el]").forEach((b) => b.onclick = () => { pickEl = b.dataset.el; renderPicker(); });
+  const q = normKey($("#pickSearch").value);
+  const team = plan.myTeams[pickTarget.teamIdx];
+  const taken = (team.members || []).filter((n, i) => n && i !== pickTarget.slot);
+  const list = RESONATORS
+    .filter((c) => pickEl === "All" || c.e === pickEl)
+    .filter((c) => !q || normKey(c.n).includes(q))
+    .sort((a, b) => (owned.has(b.n) - owned.has(a.n)) || (b.r - a.r) || a.n.localeCompare(b.n));
+  $("#pickGrid").innerHTML = list.map((c) => {
+    const x = owned.get(c.n);
+    const dis = taken.includes(c.n);
+    return `<button class="pk${x ? "" : " notown"}${dis ? " taken" : ""}" data-pick="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}" ${dis ? "disabled" : ""}>
+      <span class="tmimg">${portrait("resonators", c.n)}<img class="el" src="${elIcon(c.e)}" alt=""></span>
+      <span class="tmn">${esc(c.n)}</span>
+      <span class="tmv">${x ? (x.newFromGoal ? "Pull target" : seqTxt(x) + " · " + weapTxt(x)) : "Not owned"}</span>
+    </button>`;
+  }).join("");
+  $$("#pickGrid [data-pick]").forEach((b) => b.onclick = () => setPick(b.dataset.pick));
+}
+
+function setPick(name) {
+  const team = plan.myTeams[pickTarget.teamIdx];
+  team.members = [0, 1, 2].map((i) => (team.members || [])[i] || null);
+  team.members[pickTarget.slot] = name;
+  $("#pickModal").classList.add("hidden");
+  save(); renderMyTeams();
+}
+
+/* ---------------------------------------------------------------- History and luck */
+
+/* Share of players who need longer for their 5* than you (at pity p). */
+function luckOf(p) {
+  p = Math.max(1, Math.min(HARD, p | 0));
+  return 1 - MODEL.F[p] + 0.5 * MODEL.f[p];
+}
+
+const POOL_NAMES = { "1": "featured resonator banner", "2": "featured weapon banner", "3": "standard resonator banner", "4": "standard weapon banner" };
+
+function renderLuck() {
+  const empty = $("#luckEmpty"), body = $("#luckBody");
+  const pool = history && history.pools ? history.pools[activeTab] : null;
+  const fives = pool ? pool.fives.filter((f) => f.pity >= 1 && f.pity <= HARD) : [];
+  if (!fives.length) {
+    empty.classList.remove("hidden"); body.classList.add("hidden");
+    empty.innerHTML = pool ? "No 5★ on this banner to rate yet." : "Once your history is loaded you will see how lucky you were.";
+    return;
+  }
+  empty.classList.add("hidden"); body.classList.remove("hidden");
+  const score = (fives.reduce((s, f) => s + luckOf(f.pity), 0) / fives.length) * 100;
+  const avg = fives.reduce((s, f) => s + f.pity, 0) / fives.length;
+  const verdict = score >= 60 ? "Lucky" : score >= 40 ? "Average" : "Unlucky";
+  const big = $("#lBig");
+  big.textContent = Math.round(score) + "%";
+  big.className = "sbig" + (score >= 60 ? " good" : score >= 40 ? " gold" : " bad");
+  $("#lVerdict").textContent = verdict + (fives.length < 5 ? " (rough)" : "");
+  $("#lCap").innerHTML = `<b>${Math.round(score)}%</b> of players need longer than you for a 5★ on the ${POOL_NAMES[activeTab] || "banner"}.`;
+  $("#lBar").style.width = score + "%";
+  const best = fives.reduce((a, b) => (b.pity < a.pity ? b : a));
+  const worst = fives.reduce((a, b) => (b.pity > a.pity ? b : a));
+  const rows = [
+    ["Avg pity (you / model)", `${fix1(avg)} / ${fix1(MODEL.mean)}`],
+    ["Best pull", `${esc(best.name)} (${best.pity})`],
+    ["Worst pull", `${esc(worst.name)} (${worst.pity})`],
+  ];
+  if (activeTab === "1") {
+    const dec = pool.won + pool.lost;
+    rows.push(["50/50 rate", dec ? `${pool.won} of ${dec} won (${Math.round((pool.won / dec) * 100)}%)` : "–"]);
+  }
+  $("#lKv").innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join("");
+  drawLuckChart(fives);
+}
+
+function drawLuckChart(fives) {
+  const cv = $("#luckChart");
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth || 300, H = 170;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const c = cv.getContext("2d");
+  c.scale(dpr, dpr); c.clearRect(0, 0, W, H);
+  const L = 36, R = 10, T = 10, B = 26;
+  const pw = W - L - R, ph = H - T - B;
+  const X = (p) => L + (p / HARD) * pw, Y = (v) => T + (1 - v) * ph;
+  c.font = "600 11px Roboto, sans-serif";
+  c.strokeStyle = "rgba(242,239,230,0.07)"; c.lineWidth = 1; c.fillStyle = "#8f9198";
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    c.beginPath(); c.moveTo(L, Y(v)); c.lineTo(L + pw, Y(v)); c.stroke();
+    c.fillText(Math.round(v * 100) + "%", 2, Y(v) + 4);
+  }
+  for (const p of [0, 20, 40, 60, 80]) c.fillText(String(p), X(p) - 5, H - 8);
+  const grad = c.createLinearGradient(0, T, 0, T + ph);
+  grad.addColorStop(0, "rgba(240,200,110,0.28)"); grad.addColorStop(1, "rgba(240,200,110,0)");
+  c.beginPath(); c.moveTo(X(0), Y(0));
+  for (let p = 1; p <= HARD; p++) c.lineTo(X(p), Y(MODEL.F[p]));
+  c.lineTo(X(HARD), Y(0)); c.closePath(); c.fillStyle = grad; c.fill();
+  c.beginPath(); c.moveTo(X(0), Y(0));
+  for (let p = 1; p <= HARD; p++) c.lineTo(X(p), Y(MODEL.F[p]));
+  c.strokeStyle = "#ffecb4"; c.lineWidth = 2; c.stroke();
+  for (const f of fives) {
+    const x = X(f.pity), y = Y(MODEL.F[f.pity]);
+    c.strokeStyle = "rgba(242,239,230,.25)"; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, Y(0)); c.stroke();
+    c.fillStyle = MODEL.F[f.pity] <= 0.5 ? "#7ed6ce" : "#f2efe6";
+    c.beginPath(); c.moveTo(x, y - 6); c.lineTo(x + 6, y); c.lineTo(x, y + 6); c.lineTo(x - 6, y); c.closePath(); c.fill();
+    c.strokeStyle = "#0c0d11"; c.lineWidth = 1; c.stroke();
+  }
+  c.fillStyle = "#8f9198"; c.fillText("LEFT = EARLIER 5★ = LUCKIER", L + 8, T + 14);
+}
+
+function renderHistory() {
+  const tabs = $("#tabs"), stats = $("#histStats"), list = $("#histList");
+  const pools = history && history.pools ? history.pools : {};
+  const keys = ["1", "2", "3", "4"].filter((k) => pools[k] && pools[k].total > 0);
+  const label = { "1": "Featured resonator", "2": "Featured weapon", "3": "Standard resonator", "4": "Standard weapon" };
+  if (!keys.length) {
+    tabs.innerHTML = ""; stats.innerHTML = "";
+    list.innerHTML = `<div class="empty">No history yet. Open Convene &gt; History in the game and click <b>Fetch history</b> at the top.</div>`;
+    renderLuck();
+    return;
+  }
+  if (!keys.includes(activeTab)) activeTab = keys[0];
+  tabs.innerHTML = keys.map((k) => `<button class="btn${k === activeTab ? " on" : ""}" data-tab="${k}">${label[k]}</button>`).join("");
+  $$("#tabs .btn").forEach((b) => b.onclick = () => { activeTab = b.dataset.tab; renderHistory(); });
+  const p = pools[activeTab];
+  const box = [
+    ["Pulls", fmt(p.total)],
+    ["Astrite value", fmt(p.astrite)],
+    ["Pity now", String(p.pity5)],
+    ["Avg pity", p.avg != null ? String(p.avg) : "–"],
+  ];
+  if (activeTab === "1") box.push(["50/50 W / L", `${p.won} / ${p.lost}`]);
+  stats.innerHTML = box.map(([k, v]) => `<div class="hs"><span>${k}</span><b>${v}</b></div>`).join("");
+  const cat = activeTab === "2" || activeTab === "4" ? "weapons" : "resonators";
+  const tagTxt = { won: "Won", lost: "Lost", guarantee: "Guarantee" };
+  list.innerHTML = p.fives.length ? p.fives.map((f) => `
+    <div class="hcard">
+      <div class="card">
+        ${portrait(cat, f.name)}
+        <div class="pity${f.pity > SOFT ? " hi" : ""}"${f.unsure ? ` title="Oldest 5★ in your record. If older pulls are missing, the real pity is higher."` : ""}>${f.pity}${f.unsure ? "<sup>?</sup>" : ""}</div>
+        <div class="nm">${esc(f.name)}</div>
+      </div>
+      <div class="meta"><span>${esc((f.time || "").slice(0, 10))}</span>${f.result ? `<span class="tag ${f.result}">${tagTxt[f.result]}${f.unsure ? "?" : ""}</span>` : ""}</div>
+    </div>`).join("") + `<div class="note hnote">? Oldest 5★ in your record. If Kuro's record does not reach back far enough, its real pity is higher and the 50/50 result can be different.</div>`
+    : `<div class="empty">No 5★ on this banner yet.</div>`;
+  renderLuck();
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+function pityNote() {
+  const el = $("#pityNote");
+  const p1 = history?.pools?.["1"], p2 = history?.pools?.["2"];
+  if (!p1 && !p2) { el.innerHTML = "<b>Fetch history</b> fills in pity and guarantee automatically."; return; }
+  const hc = p1 ? p1.pity5 : 0, hg = p1 ? p1.guaranteed : false, hw = p2 ? p2.pity5 : 0;
+  const same = hc === +plan.charPity && hg === !!plan.guaranteed && hw === +plan.weaponPity;
+  el.innerHTML = `From your history of ${esc(history.updated || "?")}: resonator <b>${hc}</b>${hg ? " (guarantee)" : " (50/50)"}, weapon <b>${hw}</b>.` +
+    (same ? "" : ` <a href="#" id="applyHist">Apply</a>`);
+  const a = $("#applyHist");
+  if (a) a.onclick = (e) => { e.preventDefault(); applyHistoryPity(); };
+}
+
+function applyHistoryPity() {
+  const p1 = history?.pools?.["1"], p2 = history?.pools?.["2"];
+  if (p1) { plan.charPity = p1.pity5; plan.guaranteed = p1.guaranteed; }
+  if (p2) plan.weaponPity = p2.pity5;
+  fillInputs(); save(); calculate(); pityNote();
+}
+
+/* ---------------------------------------------------------------- Images page */
+function renderImagesPage() {
+  const box = $("#imgCats");
+  if (!online) return;
+  if (!images) { box.innerHTML = `<div class="empty">Loading images …</div>`; return; }
+  const titles = { resonators: "Resonators", weapons: "Weapons", currency: "Currency" };
+  box.innerHTML = Object.entries(images.cats).map(([c, info]) => `
+    <div class="imgcat">
+      <div class="ih"><div><b>${titles[c] || c}</b><br><small>${esc(info.path)}</small></div><button class="btn small" data-open="${c}"><img src="assets/ic_folder.png" alt="">Open</button></div>
+      <div class="thumbs">${info.files.length ? info.files.map((f) => `<div class="thumb${c === "currency" ? " sq" : ""}"><img src="${f.url}?v=${f.mtime}" alt=""><span>${esc(f.file)}</span></div>`).join("") : `<div class="empty">${esc(info.label)}</div>`}</div>
+    </div>`).join("");
+  box.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => openFolder(b.dataset.open));
+
+  // Names without an image
+  const want = new Map();
+  for (const g of plan.goals || []) want.set((g.type === "weapon" ? "weapons" : "resonators") + "|" + g.name, g);
+  for (const n of Object.keys(plan.roster || {})) want.set("resonators|" + n, n);
+  for (const [k, p] of Object.entries(history?.pools || {})) {
+    const cat = k === "2" || k === "4" ? "weapons" : "resonators";
+    for (const f of p.fives || []) want.set(cat + "|" + f.name, f);
+  }
+  const miss = [...want.keys()].filter((k) => { const [c, n] = k.split("|"); return !findImg(c, n); });
+  $("#imgMissing").innerHTML = miss.length
+    ? `<div class="note">These names have no image yet (folder in brackets):</div>` + miss.map((k) => { const [c, n] = k.split("|"); return `<span class="chip">${esc(n)} <small>(${c})</small></span>`; }).join("")
+    : `<div class="note">Every target, roster resonator and 5★ from your history has an image.</div>`;
+}
+
+async function openFolder(cat) {
+  if (!online) return;
+  try {
+    const r = await (await fetch("/api/open-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cat }) })).json();
+    $("#imgMsg").className = "msg ok";
+    $("#imgMsg").textContent = r.ok ? "Folder opened: " + r.path : "Could not open the folder.";
+  } catch (e) {
+    $("#imgMsg").className = "msg err"; $("#imgMsg").textContent = "Error: " + e.message;
+  }
+}
+
+/* ---------------------------------------------------------------- Sources list */
+function renderSources() {
+  const box = $("#sources");
+  box.innerHTML = plan.sources.map((s, i) => `
+    <div class="src${s.on ? "" : " off"}" data-i="${i}">
+      <label class="chk"><input type="checkbox" data-f="on" ${s.on ? "checked" : ""}><i></i></label>
+      <input type="text" data-f="name" value="${esc(s.name)}">
+      <input type="number" min="0" data-f="astrite" value="${+s.astrite || 0}">
+      <input type="number" min="0" data-f="tides" value="${+s.tides || 0}">
+      <input type="date" data-f="date" value="${isoOk(s.date) ? s.date : ""}" title="Available by (empty = already available or before every banner end)">
+      <button class="del" title="Remove" aria-label="Remove"></button>
+    </div>`).join("");
+  $$("#sources .src").forEach((row) => {
+    const i = +row.dataset.i;
+    row.querySelectorAll("input").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        const f = inp.dataset.f;
+        plan.sources[i][f] = f === "on" ? inp.checked : f === "name" ? inp.value : f === "date" ? (isoOk(inp.value) ? inp.value : "") : +inp.value || 0;
+        if (f === "on") row.classList.toggle("off", !inp.checked);
+        save(); scheduleCalc();
+      });
+    });
+    row.querySelector(".del").onclick = () => { plan.sources.splice(i, 1); renderSources(); save(); scheduleCalc(); };
+  });
+}
+
+/* ---------------------------------------------------------------- Settings, presets, quick setup */
+function addPreset() {
+  const pr = INCOME_PRESETS[0];
+  if (!pr) return;
+  const have = new Set((plan.sources || []).map((s) => s.name));
+  let n = 0;
+  for (const s of pr.sources) if (!have.has(s.name)) { plan.sources.push({ on: true, name: s.name, astrite: s.astrite, tides: s.tides || 0, date: s.date || "" }); n++; }
+  renderSources(); save(); calculate();
+  $("#sourceMsg").textContent = n ? `${n} rows from "${pr.label}" added. They are estimates, check them against the event list in the game.` : "Those rows are already in your list.";
+}
+
+function fillModel() {
+  const m = plan.model;
+  $$("[data-m]").forEach((el) => { el.value = m[el.dataset.m]; });
+  $("#modelText").textContent = `Pull model: ${m.base}% base rate, soft pity from pull ${m.soft + 1} (+${m.step}% per pull), hard pity ${m.hard}, 50/50 on the resonator banner, pity carries over between event banners.`;
+  $$("[data-k=charPity], [data-k=weaponPity], #suCharPity, #suWeapPity").forEach((el) => { el.max = m.hard - 1; });
+  $("#modelNote").textContent = JSON.stringify(normModel(m)) === JSON.stringify(normModel(DEFAULT_MODEL))
+    ? "Default model. Kuro publishes base rate and hard pity, the soft pity curve is a community estimate."
+    : "Custom model. All chances use these values.";
+}
+
+function serverOptions() {
+  return SERVERS.map((s) => `<option value="${s.k}">${esc(s.label)} (UTC${s.utc >= 0 ? "+" : ""}${s.utc})</option>`).join("");
+}
+
+function openSetup() {
+  const today = isoOf(serverToday());
+  $("#suServer").innerHTML = serverOptions();
+  $("#suServer").value = plan.server;
+  const v = (id, x) => { $(id).value = x || ""; };
+  v("#suAstrite", plan.astrite); v("#suLunite", plan.lunite); v("#suRadiant", plan.radiant); v("#suForging", plan.forging);
+  v("#suCharPity", plan.charPity); v("#suWeapPity", plan.weaponPity);
+  $("#suGuar").checked = !!plan.guaranteed;
+  $("#suSub").checked = !!plan.sub;
+  $("#suTarget").value = "";
+  $("#suBanner").innerHTML = BANNERS.filter((b) => b.end >= today)
+    .map((b) => `<option value="${b.end}">${esc(b.label)} (until ${fmtDate(b.end)})</option>`).join("") +
+    `<option value="">Default end (${fmtDate(plan.endDate)})</option>`;
+  $("#suList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}">`).join("");
+  $("#setupModal").classList.remove("hidden");
+}
+
+function applySetup() {
+  const n = (id) => Math.max(0, +$(id).value || 0);
+  plan.server = $("#suServer").value;
+  plan.astrite = n("#suAstrite"); plan.lunite = n("#suLunite");
+  plan.radiant = n("#suRadiant"); plan.forging = n("#suForging");
+  plan.charPity = clampPity(n("#suCharPity")); plan.weaponPity = clampPity(n("#suWeapPity"));
+  plan.guaranteed = $("#suGuar").checked;
+  plan.sub = $("#suSub").checked;
+  const t = $("#suTarget").value.trim();
+  if (t) {
+    const c = findResonator(t);
+    const g = { type: "char", name: (c ? c.n : t).slice(0, 40) };
+    if (isoOk($("#suBanner").value)) g.end = $("#suBanner").value;
+    plan.goals.push(g);
+  }
+  closeSetup();
+}
+
+function closeSetup() {
+  $("#setupModal").classList.add("hidden");
+  $("#serverSel").value = plan.server;
+  save(); fillInputs(); renderSources(); pityNote(); calculate();
+}
+
+/* Read the Convene link straight from Client.log (no PowerShell needed). */
+async function readLogFile(file) {
+  if (!file) return;
+  msg("Reading " + file.name + " …", true);
+  try {
+    const url = findConveneUrl(new Uint8Array(await file.arrayBuffer()));
+    if (!url) {
+      msg("No Convene link in this file. Open Convene > History in the game, wait until it loads, then pick Client.log again.", false);
+      return;
+    }
+    $("#conveneUrlWeb").value = url;
+    doSync({ url });
+  } catch (e) {
+    msg("Could not read the file. If the game is still running, close it and try again (the link stays in the log).", false);
+  }
+}
+
+/* ---------------------------------------------------------------- Drawing */
+function drawChart(curve, you, worst, prob, active) {
+  const cv = $("#chart");
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = 260;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const c = cv.getContext("2d");
+  c.scale(dpr, dpr);
+  c.clearRect(0, 0, W, H);
+  const L = 44, Rr = 14, T = 14, B = 34;
+  const pw = W - L - Rr, ph = H - T - B;
+  c.font = "600 11px Roboto, sans-serif";
+  if (!active || curve.length < 2) {
+    c.fillStyle = "#9aa3b4"; c.fillText("Add a target to see the curve.", L, T + 20);
+    return;
+  }
+  const x0 = curve[0].x, x1 = curve[curve.length - 1].x;
+  const X = (x) => L + ((x - x0) / Math.max(1, x1 - x0)) * pw;
+  const Y = (y) => T + (1 - y) * ph;
+
+  c.strokeStyle = "rgba(242,239,230,0.07)"; c.lineWidth = 1;
+  c.fillStyle = "#8f9198";
+  for (const y of [0, 0.25, 0.5, 0.75, 1]) {
+    c.beginPath(); c.moveTo(L, Y(y)); c.lineTo(L + pw, Y(y)); c.stroke();
+    c.fillText(Math.round(y * 100) + "%", 6, Y(y) + 4);
+  }
+  const span = x1 - x0;
+  const stepX = span > 600 ? 100 : span > 300 ? 50 : span > 120 ? 20 : 10;
+  for (let x = Math.ceil(x0 / stepX) * stepX; x <= x1; x += stepX) {
+    c.beginPath(); c.moveTo(X(x), T); c.lineTo(X(x), T + ph); c.stroke();
+    c.fillText(String(x), X(x) - 8, H - 14);
+  }
+  c.fillStyle = "#8f9198"; c.fillText("TOTAL PULLS", L + pw - 72, H - 1);
+
+  const grad = c.createLinearGradient(0, T, 0, T + ph);
+  grad.addColorStop(0, "rgba(240,200,110,0.32)");
+  grad.addColorStop(1, "rgba(240,200,110,0.0)");
+  c.beginPath(); c.moveTo(X(curve[0].x), Y(0));
+  for (const p of curve) c.lineTo(X(p.x), Y(p.y));
+  c.lineTo(X(x1), Y(0)); c.closePath(); c.fillStyle = grad; c.fill();
+  c.beginPath();
+  curve.forEach((p, i) => (i ? c.lineTo(X(p.x), Y(p.y)) : c.moveTo(X(p.x), Y(p.y))));
+  c.strokeStyle = "#ffecb4"; c.lineWidth = 2.2; c.shadowColor = "rgba(240,200,110,.6)"; c.shadowBlur = 8; c.stroke();
+  c.shadowBlur = 0;
+
+  if (worst >= x0 && worst <= x1) {
+    c.setLineDash([4, 4]); c.strokeStyle = "rgba(242,239,230,.55)"; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(X(worst), T); c.lineTo(X(worst), T + ph); c.stroke(); c.setLineDash([]);
+    c.fillStyle = "#f2efe6"; c.fillText("Guarantee " + worst, Math.min(X(worst) + 5, L + pw - 90), T + 12);
+  }
+  const yx = Math.min(Math.max(you, x0), x1);
+  c.strokeStyle = "#7ed6ce"; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(X(yx), T); c.lineTo(X(yx), T + ph); c.stroke();
+  c.fillStyle = "#7ed6ce";
+  c.beginPath();
+  const cx = X(yx), cy = Y(prob);
+  c.moveTo(cx, cy - 6); c.lineTo(cx + 6, cy); c.lineTo(cx, cy + 6); c.lineTo(cx - 6, cy); c.closePath(); c.fill();
+  const label = `You: ${you} pulls · ${pct(prob)}`;
+  const tw = c.measureText(label).width;
+  const lx = Math.min(Math.max(cx - tw / 2, L), L + pw - tw);
+  const ly = cy > T + 40 ? cy - 14 : cy + 22;
+  c.fillStyle = "rgba(242,239,230,.95)"; c.fillRect(lx - 6, ly - 12, tw + 12, 18);
+  c.fillStyle = "#16171b"; c.fillText(label, lx, ly + 1);
+}
+
+function drawRing(cv, pity) {
+  const c = cv.getContext("2d");
+  c.clearRect(0, 0, 260, 260);
+  const cx = 130, cy = 130, R = 108;
+  const start = -Math.PI / 2;
+  const softEnd = start + (Math.min(pity, SOFT) / HARD) * Math.PI * 2;
+  c.lineWidth = 8; c.lineCap = "butt";
+  if (pity > 0) {
+    c.strokeStyle = "#f0c86e"; c.shadowColor = "rgba(240,200,110,.8)"; c.shadowBlur = 12;
+    c.beginPath(); c.arc(cx, cy, R, start, softEnd); c.stroke();
+  }
+  if (pity > SOFT) {
+    c.strokeStyle = "#fff4cf"; c.shadowColor = "rgba(255,240,200,.95)";
+    c.beginPath(); c.arc(cx, cy, R, softEnd, start + (pity / HARD) * Math.PI * 2); c.stroke();
+  }
+  c.shadowBlur = 0;
+}
+
+/* ---------------------------------------------------------------- Inputs */
+function fillInputs() {
+  $$("[data-k]").forEach((el) => {
+    if (!(el.dataset.k in plan)) return;
+    const v = plan[el.dataset.k];
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  });
+}
+
+function bindInputs() {
+  $$("input[data-k]").forEach((el) => {
+    el.addEventListener("input", () => {
+      const k = el.dataset.k;
+      plan[k] = el.type === "checkbox" ? el.checked : el.type === "number" ? (+el.value || 0) : el.value;
+      save(); scheduleCalc(); if (["charPity", "guaranteed", "weaponPity"].includes(k)) pityNote();
+    });
+  });
+  $("#btnAddSource").onclick = () => { plan.sources.push({ on: true, name: "New source", astrite: 0, tides: 0, date: "" }); renderSources(); save(); calculate(); };
+  $("#btnPreset").onclick = addPreset;
+  $("#serverSel").onchange = (e) => { plan.server = e.target.value; save(); calculate(); };
+  $$("[data-m]").forEach((el) => el.addEventListener("change", () => {
+    const m = { ...plan.model, [el.dataset.m]: +el.value };
+    plan.model = setModel(m); fillModel(); save(); calculate(); renderHistory();
+  }));
+  $("#btnModelReset").onclick = () => { plan.model = setModel(DEFAULT_MODEL); fillModel(); save(); calculate(); renderHistory(); };
+  $("#btnSetup").onclick = openSetup;
+  $("#goalBanner").onchange = () => $("#goalEndWrap").classList.toggle("hidden", $("#goalBanner").value !== "custom");
+  $("#goalName").addEventListener("input", suggestBanner);
+  $("#goalFor").addEventListener("input", suggestBanner);
+  $$(".nav").forEach((b) => b.onclick = () => showPage(b.dataset.page));
+  $$("[data-goto]").forEach((b) => b.onclick = () => showPage(b.dataset.goto));
+  $$("#goalType .btn").forEach((b) => b.onclick = () => setGoalType(b.dataset.type));
+  $("#goalOk").onclick = addGoal;
+  $("#goalCancel").onclick = () => $("#goalModal").classList.add("hidden");
+  $("#goalModal").addEventListener("click", (e) => { if (e.target.id === "goalModal") $("#goalModal").classList.add("hidden"); });
+  ["#goalName", "#goalFor", "#goalEnd"].forEach((s) => $(s).addEventListener("keydown", (e) => { if (e.key === "Enter") addGoal(); }));
+  $("#btnSaveScen").onclick = saveScenario;
+  $("#scenName").addEventListener("keydown", (e) => { if (e.key === "Enter") saveScenario(); });
+  $("#btnOpenImg").onclick = () => openFolder("");
+  $("#btnReloadImg").onclick = async () => {
+    await loadImages(); renderImagesPage(); renderHistory(); calculate();
+    $("#imgMsg").className = "msg ok";
+    const n = images ? Object.values(images.cats).reduce((s, c) => s + c.files.length, 0) : 0;
+    $("#imgMsg").textContent = `${n} images found.`;
+  };
+
+  // Teams page
+  $$("#teamTabs .btn").forEach((b) => b.onclick = () => setTeamTab(b.dataset.ttab));
+  $("#rosterSearch").addEventListener("input", renderRoster);
+  $("#ownedOnly").addEventListener("change", renderRoster);
+  $("#btnRosterImport").onclick = importRosterFromHistory;
+  $("#usePlanned").addEventListener("change", (e) => { plan.usePlanned = e.target.checked; save(); renderBestTeams(); });
+  $("#btnMoreTeams").onclick = () => { autoShown += 8; renderBestTeams(); };
+  $("#btnNewTeam").onclick = newTeam;
+  $("#pickSearch").addEventListener("input", renderPicker);
+  $("#pickCancel").onclick = () => $("#pickModal").classList.add("hidden");
+  $("#pickClear").onclick = () => {
+    const team = plan.myTeams[pickTarget.teamIdx];
+    team.members = [0, 1, 2].map((i) => (team.members || [])[i] || null);
+    team.members[pickTarget.slot] = null;
+    $("#pickModal").classList.add("hidden"); save(); renderMyTeams();
+  };
+  $("#pickModal").addEventListener("click", (e) => { if (e.target.id === "pickModal") $("#pickModal").classList.add("hidden"); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $$(".modal").forEach((m) => m.classList.add("hidden")); });
+  window.addEventListener("resize", scheduleCalc);
+}
+
+/* ---------------------------------------------------------------- Saving / server */
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem("wuwaPlan", JSON.stringify(plan)); } catch (e) { /* ignore */ }
+    if (online) fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) }).catch(() => {});
+  }, 300);
+}
+
+/* Older plans used German names for the default sources and targets. */
+const OLD_NAMES = {
+  "Permanente Events": "Permanent events",
+  "Mengzhou Exploration (Schätzung)": "Mengzhou exploration (estimate)",
+  "Neue Quelle": "New source",
+  "Signatur-Waffe": "Signature weapon",
+  "Waffe": "Weapon",
+};
+const renameOld = (s) => OLD_NAMES[s] || s;
+
+function migrate(p) {
+  const out = { ...structuredClone(DEFAULT_PLAN), ...p };
+  if (!Array.isArray(out.goals)) {
+    out.goals = [];
+    const N = +p.targetChars, M = +p.targetWeapons;
+    for (let i = 0; i < (N || 0); i++) out.goals.push({ type: "char", name: `Resonator ${i + 1}` });
+    for (let i = 0; i < (M || 0); i++) out.goals.push({ type: "weapon", name: "Signature weapon" });
+  }
+  delete out.targetChars; delete out.targetWeapons;
+  out.goals = out.goals.map((g) => {
+    const o = { type: g.type === "weapon" ? "weapon" : "char", name: renameOld(g.name) };
+    if (isoOk(g.end)) o.end = g.end;
+    if (o.type === "weapon" && g.for) o.for = String(g.for).slice(0, 40);
+    return o;
+  });
+  if (!Array.isArray(out.sources)) out.sources = [];
+  out.sources = out.sources.map((s) => ({ ...s, name: renameOld(s.name), date: isoOk(s.date) ? s.date : "" }));
+  if (!SERVERS.some((x) => x.k === out.server)) out.server = "europe";
+  out.todayClaimed = out.todayClaimed !== false;
+  out.model = normModel(out.model);
+  if (!isoOk(out.endDate)) out.endDate = defaultEnd();
+  if (!Array.isArray(out.scenarios)) out.scenarios = [];
+  out.scenarios = out.scenarios.map((s) => ({ ...s, name: String(s.name || "").replace(/^Szenario /, "Scenario "), plan: migrateLite(s.plan) }));
+  if (![0.5, 0.75, 0.9, 1].includes(+out.dayTarget)) out.dayTarget = 0.5;
+  if (!out.roster || typeof out.roster !== "object") out.roster = {};
+  const clean = {};
+  for (const [n, v] of Object.entries(out.roster)) {
+    const c = findResonator(n);
+    if (c) clean[c.n] = { s: Math.max(0, Math.min(6, v.s | 0)), w: Math.max(0, Math.min(5, v.w | 0)) };
+  }
+  out.roster = clean;
+  if (!Array.isArray(out.myTeams)) out.myTeams = [];
+  out.myTeams = out.myTeams.map((t) => ({ name: String(t.name || ""), members: [0, 1, 2].map((i) => { const c = findResonator((t.members || [])[i]); return c ? c.n : null; }) }));
+  if (!BUILDS.some((b) => b.k === out.teamBuild)) out.teamBuild = "solid";
+  if (![2, 3].includes(+out.setSize)) out.setSize = 2;
+  return out;
+}
+
+function migrateLite(p) {
+  const c = { ...p };
+  if (!Array.isArray(c.goals)) {
+    c.goals = [];
+    for (let i = 0; i < (+c.targetChars || 0); i++) c.goals.push({ type: "char", name: `Resonator ${i + 1}` });
+    for (let i = 0; i < (+c.targetWeapons || 0); i++) c.goals.push({ type: "weapon", name: "Signature weapon" });
+  }
+  c.goals = c.goals.map((g) => ({ ...g, name: renameOld(g.name) }));
+  if (Array.isArray(c.sources)) c.sources = c.sources.map((s) => ({ ...s, name: renameOld(s.name) }));
+  return c;
+}
+
+function setStatus() {
+  const s = $("#status");
+  if (!online) {
+    s.innerHTML = history && history.updated
+      ? `Player <b>${esc(history.playerId || "?")}</b> · history last loaded <b>${esc(history.updated)}</b> · stored in this browser`
+      : "No history loaded yet. Click <b>Fetch history</b> at the top right.";
+    return;
+  }
+  if (history && history.updated) s.innerHTML = `Player <b>${esc(history.playerId || "?")}</b> · history last loaded <b>${esc(history.updated)}</b>`;
+  else s.innerHTML = "No history loaded yet. Click <b>Fetch history</b> at the top right.";
+}
+
+function msg(text, ok) {
+  const m = online ? $("#syncMsgLocal") : $("#syncMsg");
+  m.className = "msg " + (ok ? "ok" : "err");
+  m.textContent = text;
+}
+
+async function doSync(body) {
+  if (!online) return doBrowserSync(body);
+  const btns = $$(".btn"); btns.forEach((b) => (b.disabled = true));
+  const st = $("#status"); const old = st.innerHTML;
+  st.innerHTML = "Loading history from Kuro …";
+  msg("Loading history from Kuro …", true);
+  try {
+    const gp = $("#gamePath").value.trim();
+    if (gp) await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gamePath: gp }) });
+    let res = await (await fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, gamePath: gp }) })).json();
+    if (!res.ok && body.auto && hasUrl) {
+      const res2 = await (await fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
+      if (res2.ok) res = res2;
+    }
+    if (!res.ok) {
+      showPage("images");
+      let t = res.error || "Unknown error";
+      if (res.checked && res.checked.length) t += "\nFolders checked:\n" + res.checked.join("\n");
+      msg(t, false);
+      st.innerHTML = old;
+      return;
+    }
+    hasUrl = true;
+    history = res.history;
+    const n = Object.values(res.counts || {}).reduce((a, b) => a + b, 0);
+    msg(`Done: ${n} pulls loaded. Pity and guarantee were applied.`, true);
+    applyHistoryPity();
+    renderHistory(); setStatus();
+  } catch (e) {
+    msg("Error: " + e.message, false);
+    st.innerHTML = old;
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+  }
+}
+
+async function doBrowserSync(body) {
+  const url = (body.url || (body.auto ? localStorage.getItem("wuwaConveneUrl") || sessionUrl : "") || "").trim();
+  if (!url) {
+    showPage("images");
+    msg("Pick your Client.log in step 2 or paste the Convene link.", false);
+    return;
+  }
+  const btns = $$(".btn"); btns.forEach((b) => (b.disabled = true));
+  msg("Loading history from Kuro …", true);
+  try {
+    const res = await browserSync(url);
+    history = res.history;
+    const n = Object.values(res.counts).reduce((a, b) => a + b, 0);
+    const kept = !!localStorage.getItem("wuwaConveneUrl");
+    msg(`Done: ${n} pulls loaded. Pity and guarantee were applied.` +
+      (kept ? "" : " The link was not saved. Tick \"Remember the link\" if Fetch history should reuse it next time."), true);
+    applyHistoryPity(); renderHistory(); setStatus();
+  } catch (e) {
+    showPage("images");
+    msg(e instanceof TypeError ? "No connection to Kuro. Check your internet connection." : e.message, false);
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
+  }
+}
+
+async function init() {
+  let firstVisit = true;
+  try {
+    const saved = JSON.parse(localStorage.getItem("wuwaPlan") || "null");
+    if (saved) { plan = { ...plan, ...saved }; firstVisit = false; }
+  } catch (e) { /* ignore */ }
+  try {
+    const st = await (await fetch("/api/state")).json();
+    online = true;
+    hasUrl = !!st.hasUrl;
+    history = st.history;
+    if (st.settings && st.settings.plan) plan = { ...plan, ...st.settings.plan };
+    if (st.settings && st.settings.gamePath) $("#gamePath").value = st.settings.gamePath;
+  } catch (e) {
+    online = false;
+  }
+  if (!online) {
+    // GitHub Pages / no local server: history lives in this browser.
+    document.body.classList.add("web");
+    PAGES.images = ["Import", "Convene history and backup"];
+    $(".nav[data-page=images] span").textContent = "Import";
+    const raw = loadRawHistory();
+    if (raw.pools && Object.keys(raw.pools).length) history = analyzeHistory(raw);
+    const cmd = `irm "${new URL("import.ps1", location.href).href}" | iex`;
+    $("#psCmd").textContent = cmd;
+    $("#btnCopyCmd").onclick = async () => {
+      try { await navigator.clipboard.writeText(cmd); $("#btnCopyCmd").textContent = "Copied"; } catch (e) { /* ignore */ }
+      setTimeout(() => { $("#btnCopyCmd").textContent = "Copy"; }, 1500);
+    };
+    $("#btnUrlWeb").onclick = () => {
+      const u = $("#conveneUrlWeb").value.trim();
+      if (!u) { msg("Paste the Convene link first.", false); return; }
+      doSync({ url: u });
+    };
+    $("#btnExport").onclick = exportData;
+    $("#btnImportFile").onclick = () => $("#importFile").click();
+    $("#importFile").onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ""; };
+    // Read the link straight from the game log
+    $("#btnLogFile").onclick = () => $("#logFile").click();
+    $("#logFile").onchange = (e) => { readLogFile(e.target.files[0]); e.target.value = ""; };
+    const dz = $("#logDrop");
+    ["dragenter", "dragover"].forEach((t) => dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((t) => dz.addEventListener(t, () => dz.classList.remove("over")));
+    dz.addEventListener("drop", (e) => { e.preventDefault(); readLogFile(e.dataTransfer.files[0]); });
+    // Only keep the link if the visitor wants it
+    const rl = $("#rememberLink");
+    rl.checked = !!localStorage.getItem("wuwaConveneUrl");
+    rl.onchange = () => {
+      if (rl.checked) { if (sessionUrl) localStorage.setItem("wuwaConveneUrl", sessionUrl); }
+      else localStorage.removeItem("wuwaConveneUrl");
+    };
+    $("#btnClearHist").onclick = () => {
+      if (!confirm("Delete the stored Convene history from this browser?")) return;
+      localStorage.removeItem("wuwaHistoryRaw"); localStorage.removeItem("wuwaConveneUrl");
+      sessionUrl = ""; $("#rememberLink").checked = false;
+      history = null; renderHistory(); setStatus(); pityNote(); msg("History deleted from this browser.", true);
+    };
+  }
+  plan = migrate(plan);
+  plan.model = setModel(plan.model);
+  $("#serverSel").innerHTML = serverOptions();
+  $("#serverSel").value = plan.server;
+  fillModel();
+  $("#teamSrc").innerHTML = `Clear chance is an estimate for full stars in current endgame (Tower of Adversity, Whimpering Wastes). ` +
+    `Team tiers: community tier lists for ${esc(TEAM_SOURCES.version)} (` +
+    TEAM_SOURCES.sites.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join(", ") +
+    `), updated ${esc(TEAM_SOURCES.updated)}, plus your sequences and weapons. Echo quality and your own play matter at least as much.`;
+  $("#dataInfo").textContent = `Data ${DATA_INFO.version}, updated ${fmtDate(DATA_INFO.updated)}. Banner dates are expected dates until the in-game notice confirms them.`;
+  $("#suStart").onclick = applySetup;
+  $("#suSkip").onclick = closeSetup;
+  applyCurrencyImages();
+  await loadImages();
+  fillInputs(); bindInputs(); renderSources(); renderHistory(); setStatus(); pityNote();
+  $("#btnSync").onclick = () => doSync({ auto: true });
+  $("#btnAuto").onclick = () => doSync({ auto: true });
+  $("#btnUrl").onclick = () => {
+    const url = $("#conveneUrl").value.trim();
+    if (!url) { msg("Paste the Convene link first.", false); return; }
+    doSync({ url });
+  };
+  try { teamTab = localStorage.getItem("wuwaTeamTab") || "roster"; } catch (e) { /* ignore */ }
+  if (!["roster", "best", "mine"].includes(teamTab)) teamTab = "roster";
+  setTeamTab(teamTab);
+  let start = "overview";
+  try { start = localStorage.getItem("wuwaPage") || "overview"; } catch (e) { /* ignore */ }
+  showPage(start);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(calculate);
+  if (firstVisit && !online) { showPage("overview"); openSetup(); }
+  setInterval(() => { if (page === "resources") $("#serverNote").innerHTML = serverText(); }, 30000);
+}
+
+init();

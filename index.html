@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WuWa Pull Planner</title>
+<meta name="description" content="Pull planner and team builder for Wuthering Waves: chances per banner, daily Astrite goal, Convene history and luck rating. Fan-made.">
+<meta name="theme-color" content="#0c0d11">
+<meta property="og:type" content="website">
+<meta property="og:title" content="WuWa Pull Planner">
+<meta property="og:description" content="Plan your Wuthering Waves pulls: chances per banner, daily Astrite goal, team builder and Convene history.">
+<meta property="og:image" content="assets/icon-512.png">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/emblem.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= Sidebar ================= -->
+  <nav class="rail">
+    <img class="emblem" src="assets/emblem.png" alt="">
+    <button class="nav on" data-page="overview"><img src="assets/ic_grid.png" data-dark="assets/ic_grid_dark.png" alt=""><span>Overview</span></button>
+    <button class="nav" data-page="resources"><img src="assets/ic_income.png" data-dark="assets/ic_income_dark.png" alt=""><span>Resources</span></button>
+    <button class="nav" data-page="analysis"><img src="assets/ic_chart.png" data-dark="assets/ic_chart_dark.png" alt=""><span>Analysis</span></button>
+    <button class="nav" data-page="scenarios"><img src="assets/ic_layers.png" data-dark="assets/ic_layers_dark.png" alt=""><span>Scenarios</span></button>
+    <button class="nav" data-page="teams"><img src="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt=""><span>Teams</span></button>
+    <button class="nav" data-page="history"><img src="assets/ic_book.png" data-dark="assets/ic_book_dark.png" alt=""><span>History</span></button>
+    <button class="nav" data-page="images"><img src="assets/ic_image.png" data-dark="assets/ic_image_dark.png" alt=""><span>Images</span></button>
+  </nav>
+
+  <div class="main">
+    <!-- ================= Header ================= -->
+    <header class="topbar">
+      <div class="ptitle">
+        <div class="pline"></div>
+        <div><h1 id="pageTitle">Overview</h1><small id="pageSub">Convene Planner</small></div>
+      </div>
+      <div class="pills">
+        <button class="pill" data-goto="resources" title="Astrite"><img data-cur="astrite" alt=""><b id="pAstrite">0</b></button>
+        <button class="pill" data-goto="resources" title="Lunite"><img data-cur="lunite" alt=""><b id="pLunite">0</b></button>
+        <button class="pill" data-goto="resources" title="Radiant Tides"><img data-cur="radiant" alt=""><b id="pRadiant">0</b></button>
+        <button class="pill" data-goto="resources" title="Forging Tides"><img data-cur="forging" alt=""><b id="pForging">0</b></button>
+        <button class="btn primary" id="btnSync"><img src="assets/ic_sync_dark.png" alt="">Fetch history</button>
+      </div>
+    </header>
+    <div class="status" id="status"></div>
+
+    <!-- ================= Overview ================= -->
+    <section class="page" id="page-overview">
+      <div class="hero">
+        <div class="goalsbox">
+          <div class="label">Targets in order <em>Earliest banner end first · tap the date to change it</em></div>
+          <div class="goals" id="goals"></div>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="label">Chance for all targets</div>
+            <div class="sbig" id="oChance">–</div>
+            <div class="bar"><div class="fill" id="oChanceBar"></div></div>
+            <div class="ssub" id="oChanceSub"></div>
+          </div>
+          <div class="stat">
+            <div class="label">Guarantee</div>
+            <div class="sbig" id="oGuar">–</div>
+            <div class="bar"><div class="fill cyanfill" id="oGuarBar"></div></div>
+            <div class="ssub" id="oGuarSub"></div>
+          </div>
+          <div class="stat">
+            <div class="label">Farm for <span id="oFarmTarget">50%</span></div>
+            <div class="sbig" id="oFarm">–</div>
+            <div class="ssub" id="oFarmSub"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tiles">
+        <div class="panel tile">
+          <h2>Current pity</h2>
+          <div class="rings">
+            <div class="ringbox"><div class="ring"><canvas width="260" height="260" id="ringChar"></canvas><div class="rv"><b id="rcVal">0</b><small>/ 80</small></div></div><span>Resonator</span><em id="rcTag"></em></div>
+            <div class="ringbox"><div class="ring"><canvas width="260" height="260" id="ringWeap"></canvas><div class="rv"><b id="rwVal">0</b><small>/ 80</small></div></div><span>Weapon</span><em id="rwTag"></em></div>
+          </div>
+        </div>
+        <div class="panel tile">
+          <h2>Pulls until last banner end</h2>
+          <div class="tbig"><b id="oPulls">0</b><span>Pulls</span></div>
+          <div class="stack" id="oStack"></div>
+          <div class="legend" id="oLegend"></div>
+        </div>
+        <div class="panel tile">
+          <h2>Last banner end</h2>
+          <div class="tbig"><b id="oDays">0</b><span>Days</span></div>
+          <div class="ssub" id="oDate"></div>
+          <div class="kv small" id="oDayKv"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Resources ================= -->
+    <section class="page hidden" id="page-resources">
+      <div class="cols2">
+        <div>
+          <div class="panel">
+            <h2>Inventory</h2>
+            <div class="cur"><img data-cur="astrite" alt=""><div><b>Astrite</b><small>160 = 1 pull</small></div><input type="number" min="0" data-k="astrite"></div>
+            <div class="cur"><img data-cur="lunite" alt=""><div><b>Lunite</b><small>1 : 1 into Astrite</small></div><input type="number" min="0" data-k="lunite"></div>
+            <label class="chk sub"><input type="checkbox" data-k="useLunite"><i></i>Count Lunite</label>
+            <div class="cur"><img data-cur="radiant" alt=""><div><b>Radiant Tides</b><small>Resonator banner</small></div><input type="number" min="0" data-k="radiant"></div>
+            <div class="cur"><img data-cur="forging" alt=""><div><b>Forging Tides</b><small>Weapon banner</small></div><input type="number" min="0" data-k="forging"></div>
+            <button class="btn small" id="btnSetup"><img src="assets/ic_target.png" alt="">Quick setup</button>
+          </div>
+          <div class="panel">
+            <h2>Pity</h2>
+            <div class="pityrow">
+              <label class="field"><span>Resonator pity</span><input type="number" min="0" max="79" data-k="charPity"></label>
+              <label class="field"><span>Weapon pity</span><input type="number" min="0" max="79" data-k="weaponPity"></label>
+            </div>
+            <label class="chk"><input type="checkbox" data-k="guaranteed"><i></i>Next 5★ is guaranteed (lost the last 50/50)</label>
+            <div class="note" id="pityNote"></div>
+          </div>
+          <div class="panel">
+            <h2>Pull model</h2>
+            <div class="mgrid">
+              <label class="field"><span>Base rate %</span><input type="number" min="0.01" max="100" step="0.1" data-m="base"></label>
+              <label class="field"><span>Soft pity after pull</span><input type="number" min="0" max="199" data-m="soft"></label>
+              <label class="field"><span>+ % per pull</span><input type="number" min="0" max="100" step="0.5" data-m="step"></label>
+              <label class="field"><span>Hard pity</span><input type="number" min="10" max="200" data-m="hard"></label>
+            </div>
+            <div class="note" id="modelNote"></div>
+            <button class="btn small" id="btnModelReset"><img src="assets/ic_sync.png" alt="">Default values</button>
+          </div>
+        </div>
+        <div>
+          <div class="panel">
+            <h2>Daily income</h2>
+            <div class="pityrow">
+              <label class="field"><span>Server</span><select id="serverSel"></select></label>
+              <label class="field"><span>Default banner end</span><input type="date" data-k="endDate"></label>
+            </div>
+            <div class="note sm" id="serverNote"></div>
+            <div class="toggles">
+              <label class="chk"><input type="checkbox" data-k="dailies"><i></i>Dailies <em>60 / day</em></label>
+              <label class="chk"><input type="checkbox" data-k="sub"><i></i>Lunite subscription <em>90 / day</em></label>
+            </div>
+            <label class="chk"><input type="checkbox" data-k="todayClaimed"><i></i>Today's dailies are already in my inventory</label>
+            <div class="note" id="incomeNote"></div>
+            <div class="note">Targets use the end of their own banner (set it on the target card). The default end is for targets without one.</div>
+          </div>
+          <div class="panel">
+            <h2>Other sources</h2>
+            <div class="srchead"><span></span><span>Source</span><span>Astrite</span><span>Tides</span><span>By date</span><span></span></div>
+            <div id="sources"></div>
+            <div class="row gap">
+              <button class="btn small" id="btnAddSource"><img src="assets/ic_plus.png" alt="">Add source</button>
+              <button class="btn small" id="btnPreset"><img src="assets/ic_calendar.png" alt="">Add 3.8 estimates</button>
+            </div>
+            <div class="note" id="sourceNote"></div>
+            <div class="note">"By date" is when you get it. Empty means before every banner end. Tides count from the start.</div>
+            <div class="msg ok" id="sourceMsg"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Analysis ================= -->
+    <section class="page hidden" id="page-analysis">
+      <div class="panel">
+        <h2>Daily goal: how much you need to farm</h2>
+        <div class="seg" id="daySeg"></div>
+        <div class="daygrid">
+          <div>
+            <div class="sbig" id="dBig">–</div>
+            <div class="ssub" id="dCap"></div>
+            <div class="bar"><div class="fill" id="dBar"></div></div>
+            <div class="kv" id="dKv"></div>
+          </div>
+          <div class="dtable" id="dTable"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Chance by number of pulls</h2>
+        <canvas id="chart" height="280"></canvas>
+        <div class="note" id="chartNote"></div>
+      </div>
+      <div class="cols2">
+        <div class="panel">
+          <h2>Key numbers</h2>
+          <div class="kv" id="cKv"></div>
+        </div>
+        <div class="panel">
+          <h2>All in on resonators</h2>
+          <div class="note">Chance for at least k featured resonators if you put every pull on the resonator banner.</div>
+          <div id="kTable"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Scenarios ================= -->
+    <section class="page hidden" id="page-scenarios">
+      <div class="panel">
+        <h2>Scenarios compared</h2>
+        <div class="note">The highlighted row is your current plan. Δ is the difference in percentage points. Guarantee shows "yes" or how many pulls are missing.</div>
+        <div class="sctable" id="scenTable"></div>
+      </div>
+      <div class="panel">
+        <h2>Save current plan</h2>
+        <div class="scsave">
+          <input type="text" id="scenName" maxlength="40" placeholder="Name, e.g. All in on Suisui">
+          <button class="btn primary" id="btnSaveScen"><img src="assets/ic_import_dark.png" alt="">Save</button>
+        </div>
+        <div class="msg err" id="scenMsg"></div>
+      </div>
+    </section>
+
+    <!-- ================= Roster & Teams ================= -->
+    <section class="page hidden" id="page-teams">
+      <div class="seg" id="teamTabs">
+        <button class="btn on" data-ttab="roster"><img src="assets/ic_person_dark.png" data-light="assets/ic_person.png" data-dark="assets/ic_person_dark.png" alt="">Roster</button>
+        <button class="btn" data-ttab="best"><img src="assets/ic_target.png" data-light="assets/ic_target.png" data-dark="assets/ic_target_dark.png" alt="">Best teams</button>
+        <button class="btn" data-ttab="mine"><img src="assets/ic_team.png" data-light="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt="">My teams</button>
+      </div>
+
+      <!-- Roster -->
+      <div id="tt-roster">
+        <div class="tsum" id="rosterSum"></div>
+        <div class="panel">
+          <h2>Your resonators</h2>
+          <div class="rtools">
+            <div class="seg elseg" id="elSeg"></div>
+            <div class="rtools-r">
+              <input type="text" id="rosterSearch" placeholder="Search">
+              <label class="chk"><input type="checkbox" id="ownedOnly"><i></i>Owned only</label>
+            </div>
+          </div>
+          <div class="note">Click a card to mark it as owned. Set the sequence (S0 to S6) and the signature weapon (R1 to R5, or none) with the arrows.</div>
+          <div class="rgrid" id="rosterGrid"></div>
+        </div>
+        <div class="panel">
+          <h2>Import</h2>
+          <div class="note">Takes every resonator from your Convene history and sets the sequence from the number of copies (2 copies = S1). Values are only raised, never lowered. Weapons cannot be assigned automatically, set them on the cards.</div>
+          <div class="row gap mt">
+            <button class="btn primary" id="btnRosterImport"><img src="assets/ic_import_dark.png" alt="">Import from history</button>
+          </div>
+          <div class="msg" id="rosterMsg"></div>
+        </div>
+      </div>
+
+      <!-- Best teams -->
+      <div id="tt-best" class="hidden">
+        <div class="panel">
+          <h2>Settings</h2>
+          <div class="tset">
+            <div>
+              <div class="label">Echo and level build</div>
+              <div class="seg" id="buildSeg"></div>
+            </div>
+            <label class="chk"><input type="checkbox" id="usePlanned"><i></i>Include my pull targets <em>Resonators from the Overview count as owned</em></label>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Best lineup for endgame</h2>
+          <div class="note">Teams without shared members, for Tower of Adversity and Whimpering Wastes.</div>
+          <div class="seg" id="setSeg"></div>
+          <div id="teamSet"></div>
+        </div>
+        <div class="panel">
+          <h2>All teams you can build</h2>
+          <div id="autoList"></div>
+          <button class="btn small" id="btnMoreTeams">Show more</button>
+        </div>
+      </div>
+
+      <!-- My teams -->
+      <div id="tt-mine" class="hidden">
+        <div id="myTeams"></div>
+        <button class="btn primary" id="btnNewTeam"><img src="assets/ic_plus_dark.png" alt="">New team</button>
+      </div>
+      <div class="note tfoot" id="teamSrc"></div>
+    </section>
+
+    <!-- ================= History ================= -->
+    <section class="page hidden" id="page-history">
+      <div class="seg" id="tabs"></div>
+      <div class="hsummary" id="histStats"></div>
+      <div class="hist">
+        <div class="panel">
+          <h2>5★ pulls</h2>
+          <div class="hgrid" id="histList"></div>
+        </div>
+        <div class="panel">
+          <h2>Luck rating</h2>
+          <div class="empty" id="luckEmpty"></div>
+          <div id="luckBody" class="hidden">
+            <div class="luckhead"><div class="sbig" id="lBig">–</div><div class="verdict" id="lVerdict"></div></div>
+            <div class="ssub" id="lCap"></div>
+            <div class="bar"><div class="fill" id="lBar"></div></div>
+            <canvas id="luckChart" height="180"></canvas>
+            <div class="note">Gold: chance to have a 5★ by pull X. Diamonds: your 5★ pulls, teal means luckier than half of all players.</div>
+            <div class="kv" id="lKv"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Images & Import ================= -->
+    <section class="page hidden" id="page-images">
+      <!-- Web version (GitHub Pages): import in the browser -->
+      <div class="web-only">
+        <div class="cols2">
+          <div class="panel">
+            <h2>Import Convene history</h2>
+            <ol class="steps">
+              <li>Start Wuthering Waves on your PC and open <b>Convene &gt; History</b>. Wait until the list has loaded.</li>
+              <li>Pick the game log. It is in your game folder under <b>Client\Saved\Logs\Client.log</b>. The planner reads the link from it, nothing is uploaded.
+                <div class="drop" id="logDrop">
+                  <button class="btn primary" id="btnLogFile"><img src="assets/ic_folder_dark.png" alt="">Pick Client.log</button>
+                  <span>or drop the file here</span>
+                </div>
+                <input type="file" id="logFile" accept=".log,text/plain" class="hidden">
+                <div class="note">If the file cannot be opened, close the game first. The link stays in the log.</div>
+              </li>
+              <li>Or the old way: run this in <b>PowerShell</b>. It copies the link, then paste it below and click <b>Load history</b>.
+                <div class="cmd"><code id="psCmd"></code><button class="mini" id="btnCopyCmd">Copy</button></div>
+              </li>
+            </ol>
+            <label class="field"><span>Convene link</span><input type="text" id="conveneUrlWeb" placeholder="https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?..."></label>
+            <div class="row gap">
+              <button class="btn primary" id="btnUrlWeb"><img src="assets/ic_import_dark.png" alt="">Load history</button>
+            </div>
+            <label class="chk"><input type="checkbox" id="rememberLink"><i></i>Remember the link in this browser</label>
+            <div class="msg" id="syncMsg"></div>
+            <div class="note">With "Remember", <b>Fetch history</b> works next time without the log. The link gives read access to your Convene history while it is valid, so without "Remember" it is only kept until you close the page.</div>
+          </div>
+          <div class="panel">
+            <h2>Privacy and backup</h2>
+            <div class="note">Your plan, roster and history stay in this browser only. The page talks directly to Kuro's official API, no other server is involved. Do not share your Convene link publicly. The script only reads your game log, you can read it yourself in <b>import.ps1</b>.</div>
+            <div class="note">Clearing browser data deletes everything. Save a backup now and then, or to move to another PC or browser.</div>
+            <div class="row gap mt">
+              <button class="btn primary" id="btnExport"><img src="assets/ic_import_dark.png" alt="">Save backup</button>
+              <button class="btn" id="btnImportFile"><img src="assets/ic_folder.png" alt="">Restore backup</button>
+              <button class="btn" id="btnClearHist"><img src="assets/ic_cross.png" alt="">Delete history</button>
+            </div>
+            <input type="file" id="importFile" accept=".json,application/json" class="hidden">
+          </div>
+        </div>
+      </div>
+
+      <div class="cols2 local-only">
+        <div class="panel">
+          <h2>Import history</h2>
+          <ol class="steps">
+            <li>Start Wuthering Waves and open <b>Convene &gt; History</b>. Wait until the list has loaded.</li>
+            <li>Click <b>Search automatically</b>. The planner reads the link from the game log and loads every banner.</li>
+            <li>If that fails, enter your game folder or paste the Convene link.</li>
+          </ol>
+          <label class="field"><span>Game folder (optional)</span><input type="text" id="gamePath" placeholder="e.g. D:\Wuthering Waves\Wuthering Waves Game"></label>
+          <label class="field"><span>Convene link (optional)</span><input type="text" id="conveneUrl" placeholder="https://aki-gm-resources-oversea.aki-game.net/aki/gacha/index.html#/record?..."></label>
+          <div class="row gap">
+            <button class="btn primary" id="btnAuto"><img src="assets/ic_target_dark.png" alt="">Search automatically</button>
+            <button class="btn" id="btnUrl"><img src="assets/ic_sync.png" alt="">Load with link</button>
+          </div>
+          <div class="msg" id="syncMsgLocal"></div>
+        </div>
+        <div class="panel">
+          <h2>Your own images</h2>
+          <div class="note">Put PNGs into the <b>images</b> folder next to the planner. The file name is the name, e.g. <b>Hiyuki.png</b> or <b>Yangyang Xuanling.png</b>. Upper and lower case, spaces and special characters do not matter. Portrait format (about 3:4) works best for characters.</div>
+          <div class="row gap mt">
+            <button class="btn primary" id="btnOpenImg"><img src="assets/ic_folder_dark.png" alt="">Open images folder</button>
+            <button class="btn" id="btnReloadImg"><img src="assets/ic_sync.png" alt="">Reload</button>
+          </div>
+          <div class="msg" id="imgMsg"></div>
+          <div class="missing" id="imgMissing"></div>
+        </div>
+      </div>
+      <div class="panel local-only">
+        <h2>Images found</h2>
+        <div id="imgCats"></div>
+      </div>
+    </section>
+
+    <footer>
+      <span id="modelText"></span> Chances are estimates, guarantee values are exact (worst case).<br>
+      <span id="dataInfo"></span> Fan-made tool, not affiliated with Kuro Games.
+    </footer>
+  </div>
+</div>
+
+<!-- Add target -->
+<div class="modal hidden" id="goalModal">
+  <div class="panel mbox">
+    <h2 id="goalTitle">Add target</h2>
+    <div class="seg" id="goalType">
+      <button class="btn on" data-type="char"><img src="assets/ic_person.png" alt="">Resonator</button>
+      <button class="btn" data-type="weapon"><img src="assets/ic_sword.png" alt="">Weapon</button>
+    </div>
+    <label class="field"><span>Name</span><input type="text" id="goalName" list="nameList" placeholder="e.g. Hiyuki"></label>
+    <datalist id="nameList"></datalist>
+    <label class="field" id="goalForWrap"><span>Signature weapon of</span><input type="text" id="goalFor" list="resList" placeholder="e.g. Hiyuki"></label>
+    <datalist id="resList"></datalist>
+    <label class="field"><span>Banner end</span><select id="goalBanner"></select></label>
+    <label class="field hidden" id="goalEndWrap"><span>Last day of the banner</span><input type="date" id="goalEnd"></label>
+    <div class="msg err" id="goalMsg"></div>
+    <div class="row gap">
+      <button class="btn primary" id="goalOk"><img src="assets/ic_import_dark.png" alt=""><span id="goalOkTxt">Add</span></button>
+      <button class="btn" id="goalCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pick resonator for a team slot -->
+<div class="modal hidden" id="pickModal">
+  <div class="panel mbox wide">
+    <h2 id="pickTitle">Choose resonator</h2>
+    <div class="rtools">
+      <div class="seg elseg" id="pickEl"></div>
+      <input type="text" id="pickSearch" placeholder="Search">
+    </div>
+    <div class="pgrid" id="pickGrid"></div>
+    <div class="row gap mt">
+      <button class="btn" id="pickClear">Empty slot</button>
+      <button class="btn" id="pickCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quick setup (first visit) -->
+<div class="modal hidden" id="setupModal">
+  <div class="panel mbox setup">
+    <h2>Quick setup</h2>
+    <div class="note">Fill in what you have now. Everything stays in this browser and can be changed later on the Resources page.</div>
+    <label class="field"><span>Server</span><select id="suServer"></select></label>
+    <div class="sugrid">
+      <label class="field"><span>Astrite</span><input type="number" min="0" id="suAstrite"></label>
+      <label class="field"><span>Lunite</span><input type="number" min="0" id="suLunite"></label>
+      <label class="field"><span>Radiant Tides</span><input type="number" min="0" id="suRadiant"></label>
+      <label class="field"><span>Forging Tides</span><input type="number" min="0" id="suForging"></label>
+      <label class="field"><span>Resonator pity</span><input type="number" min="0" max="79" id="suCharPity"></label>
+      <label class="field"><span>Weapon pity</span><input type="number" min="0" max="79" id="suWeapPity"></label>
+    </div>
+    <label class="chk"><input type="checkbox" id="suGuar"><i></i>Next 5★ is guaranteed (lost the last 50/50)</label>
+    <label class="chk"><input type="checkbox" id="suSub"><i></i>I have the Lunite subscription</label>
+    <div class="sugrid">
+      <label class="field"><span>First target (optional)</span><input type="text" id="suTarget" list="suList" placeholder="e.g. Hiyuki"></label>
+      <label class="field"><span>Banner</span><select id="suBanner"></select></label>
+    </div>
+    <datalist id="suList"></datalist>
+    <div class="note">Pity and guarantee are filled in automatically once you import your Convene history.</div>
+    <div class="row gap mt">
+      <button class="btn primary" id="suStart"><img src="assets/ic_import_dark.png" alt="">Start planning</button>
+      <button class="btn" id="suSkip">Skip</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="calc.js"></script>
+<script src="teams.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
