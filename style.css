@@ -639,3 +639,8 @@ button.tm:hover .tmimg { filter: brightness(1.15); outline: 1px solid var(--gold
 
 
 html.noanim *, html.noanim *::before, html.noanim *::after { animation: none !important; transition: none !important; }
+
+/* resonators that are announced but not released yet */
+.rc .rimg .role.soon { right: 6px; top: 8px; padding: 2px 6px; background: rgba(10, 10, 14, .82); border: 1px solid rgba(232, 182, 74, .7); color: #e8b64a !important; letter-spacing: .1em; }
+.rc.soon .rimg .art { filter: saturate(.8) brightness(.92); }
+.goal .nm small.soon { display: block; color: #e8b64a; text-transform: uppercase; letter-spacing: .1em; font-size: 10px; margin-top: 2px; }

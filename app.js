@@ -636,7 +636,7 @@ function renderGoals(ev) {
         <div class="num">${i + 1}</div>
         <img class="type" src="assets/${isW ? "ic_sword" : "ic_person"}.png" alt="">
         <div class="tools">${canMove ? `<button class="mv" data-mv="${idx}" title="Pull earlier" aria-label="Pull earlier"></button>` : ""}<button class="rm" data-rm="${idx}" title="Remove" aria-label="Remove"></button></div>
-        <div class="nm">${esc(sig || gl.name || (isW ? "Weapon" : "Resonator"))}${isW && gl.for ? `<small>for ${esc(gl.for)}</small>` : ""}</div>
+        <div class="nm">${esc(sig || gl.name || (isW ? "Weapon" : "Resonator"))}${isW && gl.for ? `<small>for ${esc(gl.for)}</small>` : ""}${(() => { const rc = !isW && findResonator(gl.name); return rc && rc.soon ? `<small class="soon">Not released yet</small>` : ""; })()}</div>
       </div>
       <button class="gend" data-edit="${idx}" title="Change target or banner end">${isoOk(gl.end) ? endLabel(x.end) : `no date yet · ${fmtShort(x.end)}`}</button>
       <div class="gfoot">
@@ -667,7 +667,7 @@ function moveGoal(idx) {
 function openGoalModal(idx = -1) {
   editGoal = idx;
   const gl = idx >= 0 ? plan.goals[idx] : null;
-  $("#resList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}">`).join("");
+  $("#resList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}"${c.soon ? ` label="not released"` : ""}>`).join("");
   $("#goalName").value = gl ? gl.name : "";
   $("#goalFor").value = gl?.for || "";
   $("#goalMsg").textContent = "";
@@ -1036,7 +1036,7 @@ function renderRoster() {
   const teams = buildTeams(ownedMap(false), plan.teamBuild);
   const set = bestTeamSet(teams, 2);
   $("#rosterSum").innerHTML = [
-    ["Resonators", `${owned.length}<small>/ ${RESONATORS.length}</small>`],
+    ["Resonators", `${owned.length}<small>/ ${RESONATORS.filter((c) => !c.soon).length}</small>`],
     ["5★ resonators", String(fives.length)],
     ["Signature weapons", String(sigs.length)],
     ["Teams you can build", String(teams.length)],
@@ -1053,26 +1053,27 @@ function renderRoster() {
     .filter((c) => rosterEl === "All" || c.e === rosterEl)
     .filter((c) => !q || normKey(c.n).includes(q))
     .filter((c) => !only || roster[c.n])
-    .sort((a, b) => (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || ELEMENTS.indexOf(a.e) - ELEMENTS.indexOf(b.e) || a.n.localeCompare(b.n));
+    .sort((a, b) => (!!a.soon - !!b.soon) || (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || ELEMENTS.indexOf(a.e) - ELEMENTS.indexOf(b.e) || a.n.localeCompare(b.n));
   $("#rosterGrid").innerHTML = list.length ? list.map((c) => {
     const x = roster[c.n];
-    return `<div class="rc r${c.r}${x ? " owned" : ""}" data-n="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}">
-      <button class="rimg" data-toggle title="${x ? "Owned. Click to remove" : "Click to mark as owned"}">
+    return `<div class="rc r${c.r}${x ? " owned" : ""}${c.soon ? " soon" : ""}" data-n="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}">
+      <button class="rimg" data-toggle title="${c.soon ? "Not released yet" : x ? "Owned. Click to remove" : "Click to mark as owned"}">
         ${portrait("resonators", c.n)}
         <img class="el" src="${elIcon(c.e)}" alt="${c.e}">
-        <span class="role">${ROLE_LABEL[c.role]}</span>
+        ${c.soon ? `<span class="role soon">Not released</span>` : `<span class="role">${ROLE_LABEL[c.role]}</span>`}
         <span class="own"></span>
         <span class="rname">${esc(c.n)}</span>
       </button>
       <div class="rctl">${x ? `
         <div class="stp" title="Sequence"><button data-d="s-1" aria-label="Lower sequence"></button><b>${seqTxt(x)}</b><button data-d="s1" aria-label="Raise sequence"></button></div>
         <div class="stp" title="Signature weapon (none or R1 to R5)"><button data-d="w-1" aria-label="Lower refinement"></button><b class="${x.w > 0 ? "" : "dim"}">${x.w > 0 ? "R" + x.w : "None"}</b><button data-d="w1" aria-label="Raise refinement"></button></div>`
-      : `<span class="nown">Not owned</span>`}</div>
+      : `<span class="nown">${c.soon ? "Announced" : "Not owned"}</span>`}</div>
     </div>`;
   }).join("") : `<div class="empty">No resonator matches.</div>`;
   $$("#rosterGrid .rc").forEach((card) => {
     const n = card.dataset.n;
     card.querySelector("[data-toggle]").onclick = () => {
+      if (RES_BY_NAME.get(n) && RES_BY_NAME.get(n).soon) return;   // cannot own a resonator that is not released
       if (!plan.roster) plan.roster = {};
       if (plan.roster[n]) delete plan.roster[n]; else plan.roster[n] = { s: 0, w: 0 };
       save(); renderRoster();
@@ -1364,6 +1365,7 @@ function renderPicker() {
   const team = plan.myTeams[pickTarget.teamIdx];
   const taken = (team.members || []).filter((n, i) => n && i !== pickTarget.slot);
   const list = RESONATORS
+    .filter((c) => !c.soon)
     .filter((c) => pickEl === "All" || c.e === pickEl)
     .filter((c) => !q || normKey(c.n).includes(q))
     .sort((a, b) => (owned.has(b.n) - owned.has(a.n)) || (b.r - a.r) || a.n.localeCompare(b.n));
@@ -1630,7 +1632,7 @@ function openSetup() {
   $("#suBanner").innerHTML = BANNERS.filter((b) => b.end >= today)
     .map((b) => `<option value="${b.end}">${esc(b.label)} (until ${fmtDate(b.end)})</option>`).join("") +
     `<option value="">Date not known yet</option>`;
-  $("#suList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}">`).join("");
+  $("#suList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}"${c.soon ? ` label="not released"` : ""}>`).join("");
   $("#setupModal").classList.remove("hidden");
 }
 

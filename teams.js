@@ -9,8 +9,12 @@
 const ELEMENTS = ["Glacio", "Fusion", "Electro", "Aero", "Spectro", "Havoc"];
 const EL_COLOR = {
   Glacio: "#8fd3f5", Fusion: "#f08a66", Electro: "#b994ff",
-  Aero: "#73e0b4", Spectro: "#f2dc7a", Havoc: "#d0609a",
+  Aero: "#73e0b4", Spectro: "#f2dc7a", Havoc: "#d0609a", Unknown: "#8d93a0",
 };
+
+/* Resonators that are announced but not playable yet (shown with a "Not released" tag, not usable in teams). Remove a name
+   here, and fill in its element in RESONATORS below, when it goes live. */
+const UNRELEASED = new Set(["Anna", "April", "Cairn", "Gordia", "I.YA", "Lucielle", "Simulsys"]);
 
 /* role: dps = main damage, sub = sub-DPS / buffer, heal = sustain (healer or shielder) */
 const RESONATORS = [
@@ -42,7 +46,12 @@ const RESONATORS = [
   ["Danjin", 4, "Havoc", "dps"], ["Taoqi", 4, "Havoc", "heal"], ["Camellya", 5, "Havoc", "dps"],
   ["Cantarella", 5, "Havoc", "sub"], ["Roccia", 5, "Havoc", "sub"], ["Phrolova", 5, "Havoc", "dps"],
   ["Rover (Havoc)", 5, "Havoc", "dps"], ["Chisa", 5, "Havoc", "heal"], ["Yangyang: Xuanling", 5, "Havoc", "dps"],
-].map(([n, r, e, role]) => ({ n, r, e, role }));
+  // New Federation, version 4.x: revealed by Kuro on 17 Nov 2026, NOT RELEASED. Element, weapon, rarity and role are
+  // not official yet (the leaks contradict each other), so the element stays "Unknown" and the role is a placeholder.
+  ["Anna", 5, "Unknown", "sub"], ["April", 5, "Unknown", "sub"], ["Cairn", 5, "Unknown", "sub"],
+  ["Gordia", 5, "Unknown", "sub"], ["I.YA", 5, "Unknown", "sub"], ["Lucielle", 5, "Unknown", "sub"],
+  ["Simulsys", 5, "Unknown", "sub"],
+].map(([n, r, e, role]) => ({ n, r, e, role, soon: UNRELEASED.has(n) }));
 
 const ROLE_LABEL = { dps: "Main DPS", sub: "Sub-DPS", heal: "Sustain" };
 

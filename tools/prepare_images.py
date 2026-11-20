@@ -208,6 +208,9 @@ def pick_figure(im, side):
 
 
 def make_resonator(im, width, ax, ay):
+    if im.width / im.height < 0.65:  # tall 9:16 character card (frame, logo on top, name at the bottom): keep only the figure
+        w, h = im.size
+        im = im.crop((round(w * 0.045), round(h * 0.115), round(w * 0.955), round(h * 0.80)))
     im = crop_ratio(im, 3, 4, ax, ay)
     if im.width > width:  # never scale up
         im = im.resize((width, round(width * 4 / 3)), Image.LANCZOS)
