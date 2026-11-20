@@ -641,6 +641,9 @@ button.tm:hover .tmimg { filter: brightness(1.15); outline: 1px solid var(--gold
 html.noanim *, html.noanim *::before, html.noanim *::after { animation: none !important; transition: none !important; }
 
 /* resonators that are announced but not released yet */
-.rc .rimg .role.soon { right: 6px; top: 8px; padding: 2px 6px; background: rgba(10, 10, 14, .82); border: 1px solid rgba(232, 182, 74, .7); color: #e8b64a !important; letter-spacing: .1em; }
-.rc.soon .rimg .art { filter: saturate(.8) brightness(.92); }
+.rc .rimg .role.soon { right: 6px; top: 8px; padding: 2px 6px; background: rgba(10, 10, 14, .9); border: 1px solid rgba(232, 182, 74, .75); color: #f0c35a !important; text-shadow: none; letter-spacing: .1em; }
+.rc.soon:not(.owned) .rimg, .rc.soon:not(.owned) .rimg:hover { filter: none; }
+.rc.soon .rimg .art { filter: grayscale(.45) brightness(.66); }
+.rc.soon .rimg:hover .art { filter: grayscale(.2) brightness(.9); }
+.rc.soon .rimg .el { filter: drop-shadow(0 1px 3px #000) brightness(1.25); }
 .goal .nm small.soon { display: block; color: #e8b64a; text-transform: uppercase; letter-spacing: .1em; font-size: 10px; margin-top: 2px; }
