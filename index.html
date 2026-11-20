@@ -28,6 +28,7 @@
     <button class="nav" data-page="analysis"><img src="assets/ic_chart.png" data-dark="assets/ic_chart_dark.png" alt=""><span>Analysis</span></button>
     <button class="nav" data-page="scenarios"><img src="assets/ic_layers.png" data-dark="assets/ic_layers_dark.png" alt=""><span>Scenarios</span></button>
     <button class="nav" data-page="teams"><img src="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt=""><span>Teams</span></button>
+    <button class="nav" data-page="builds"><img src="assets/ic_sword.png" data-dark="assets/ic_sword_dark.png" alt=""><span>Builds</span></button>
     <button class="nav" data-page="history"><img src="assets/ic_book.png" data-dark="assets/ic_book_dark.png" alt=""><span>History</span></button>
     <button class="nav" data-page="images"><img src="assets/ic_image.png" data-dark="assets/ic_image_dark.png" alt=""><span>Images</span></button>
   </nav>
@@ -220,6 +221,7 @@
     <section class="page hidden" id="page-teams">
       <div class="seg" id="teamTabs">
         <button class="btn on" data-ttab="roster"><img src="assets/ic_person_dark.png" data-light="assets/ic_person.png" data-dark="assets/ic_person_dark.png" alt="">Roster</button>
+        <button class="btn" data-ttab="weapons"><img src="assets/ic_sword_dark.png" data-light="assets/ic_sword.png" data-dark="assets/ic_sword_dark.png" alt="">Weapons</button>
         <button class="btn" data-ttab="best"><img src="assets/ic_target.png" data-light="assets/ic_target.png" data-dark="assets/ic_target_dark.png" alt="">Best teams</button>
         <button class="btn" data-ttab="mine"><img src="assets/ic_team.png" data-light="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt="">My teams</button>
       </div>
@@ -246,6 +248,24 @@
             <button class="btn primary" id="btnRosterImport"><img src="assets/ic_import_dark.png" alt="">Import from history</button>
           </div>
           <div class="msg" id="rosterMsg"></div>
+        </div>
+      </div>
+
+      <!-- Weapons -->
+      <div id="tt-weapons" class="hidden">
+        <div class="tsum" id="wSum"></div>
+        <div class="panel">
+          <h2>Your weapons</h2>
+          <div class="rtools">
+            <div class="seg" id="wTypeSeg"></div>
+            <div class="rtools-r">
+              <input type="text" id="wSearch" placeholder="Weapon or resonator">
+              <label class="chk"><input type="checkbox" id="wOwnedOnly"><i></i>Owned only</label>
+              <label class="chk"><input type="checkbox" id="wLow"><i></i>3★ and below</label>
+            </div>
+          </div>
+          <div class="note">Click a weapon to mark it as owned, then set the refinement (R1 to R5) and how many copies you have. Signature weapons set on the roster cards count too. Each team member gets the best of your weapons automatically: the small square on the team cards.</div>
+          <div class="wgrid" id="wGrid"></div>
         </div>
       </div>
 
@@ -280,6 +300,20 @@
         <button class="btn primary" id="btnNewTeam"><img src="assets/ic_plus_dark.png" alt="">New team</button>
       </div>
       <div class="note tfoot" id="teamSrc"></div>
+    </section>
+
+    <!-- ================= Builds ================= -->
+    <section class="page hidden" id="page-builds">
+      <div class="bwrap">
+        <div class="panel blistp">
+          <h2>Resonators</h2>
+          <div class="seg elseg" id="bElSeg"></div>
+          <input type="text" id="bSearch" placeholder="Search">
+          <div class="blist" id="bList"></div>
+        </div>
+        <div class="panel" id="bDetail"></div>
+      </div>
+      <div class="note tfoot" id="bSrc"></div>
     </section>
 
     <!-- ================= History ================= -->
@@ -459,6 +493,7 @@
 <script src="data.js"></script>
 <script src="calc.js"></script>
 <script src="teams.js"></script>
+<script src="builds.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

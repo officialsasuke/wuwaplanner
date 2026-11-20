@@ -77,7 +77,7 @@ def norm_key(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
 
 
-def tokens_of(stem: str, noise=None) -> list:
+def tokens_of(stem: str, noise=None, keep_digits=False) -> list:
     """File name -> useful words (camelCase and separators split, noise words and numbers dropped)."""
     noise = NOISE if noise is None else noise
     stem = unquote(stem)  # wiki downloads: "Bloodpact%27s_Pledge" -> "Bloodpact's_Pledge", "Lux_%26_Umbra" -> "Lux_&_Umbra"
@@ -85,9 +85,12 @@ def tokens_of(stem: str, noise=None) -> list:
     out = []
     for t in re.split(r"[^A-Za-z0-9]+", s):
         t = t.lower()
-        if not t or re.fullmatch(r"\d+(x\d+)?|v\d+", t):  # 256, 256x256, v2
+        if not t:
             continue
-        t = re.sub(r"\d+$", "", t)  # head256 -> head
+        if not keep_digits:  # weapon names can contain numbers: "Broadblade#41", "Gauntlets#21D"
+            if re.fullmatch(r"\d+(x\d+)?|v\d+", t):  # 256, 256x256, v2
+                continue
+            t = re.sub(r"\d+$", "", t)  # head256 -> head
         if t and t not in noise:
             out.append(t)
     return out
@@ -283,7 +286,7 @@ def main():
             if hit:
                 key, how, cat = hit, "exact", "currency"
         if not key and cat == "weapons":
-            wj = "".join(tokens_of(p.stem, WEAPON_NOISE))
+            wj = "".join(tokens_of(p.stem, WEAPON_NOISE, keep_digits=True))
             key, how = (wj, "exact") if wj else (None, "empty name")
 
         if not key or not cat:

@@ -36,6 +36,7 @@ const DEFAULT_PLAN = {
   roster: {},
   teamBuild: "solid", usePlanned: true, setSize: 2,
   myTeams: [],
+  weapons: {},
 };
 
 const PAGES = {
@@ -44,6 +45,7 @@ const PAGES = {
   analysis: ["Analysis", "Daily goal and chances"],
   scenarios: ["Scenarios", "What if"],
   teams: ["Teams", "Roster and team builder"],
+  builds: ["Builds", "Weapons, echoes and stats"],
   history: ["History", "Convene Record"],
   images: ["Images", "Your images and import"],
 };
@@ -478,6 +480,7 @@ function showPage(p) {
   $("#pageSub").textContent = PAGES[p][1];
   try { localStorage.setItem("wuwaPage", p); } catch (e) { /* ignore */ }
   if (p === "images") renderImagesPage();
+  if (p === "builds") renderBuilds();
   calculate();
   window.scrollTo({ top: 0 });
 }
@@ -991,13 +994,14 @@ function setTeamTab(t) {
     const img = b.querySelector("img");
     if (img) img.src = on ? img.dataset.dark : img.dataset.light;
   });
-  ["roster", "best", "mine"].forEach((k) => $("#tt-" + k).classList.toggle("hidden", k !== t));
+  ["roster", "weapons", "best", "mine"].forEach((k) => $("#tt-" + k).classList.toggle("hidden", k !== t));
   try { localStorage.setItem("wuwaTeamTab", t); } catch (e) { /* ignore */ }
   renderTeamsPage();
 }
 
 function renderTeamsPage() {
   if (teamTab === "roster") renderRoster();
+  else if (teamTab === "weapons") renderWeapons();
   else if (teamTab === "best") renderBestTeams();
   else renderMyTeams();
 }
@@ -1089,9 +1093,147 @@ function importRosterFromHistory() {
   box.textContent = added || raised ? `Done: ${added} added, ${raised} sequences raised.` : "Your roster already matches your history.";
 }
 
+/* ---------------------------------------------------------------- weapons you own */
+/* Inventory plus the signature weapons set on the roster cards (R1 to R5). Map name -> {r, n} */
+function ownedWeapons() {
+  const m = new Map();
+  for (const [n, v] of Object.entries(plan.weapons || {})) if (findWeapon(n)) m.set(findWeapon(n).n, { r: v.r || 1, n: v.n || 1 });
+  for (const [c, v] of Object.entries(plan.roster || {})) {
+    const sig = SIGNATURE[c];
+    if (!sig || !(v.w > 0) || !findWeapon(sig)) continue;
+    const o = m.get(sig);
+    if (!o) m.set(sig, { r: v.w, n: 1 });
+    else o.r = Math.max(o.r, v.w);
+  }
+  return m;
+}
+function wImg(name) { return webImg("weapons", name); }
+const WPH = "assets/ph_weapon.png";
+function weaponSquare(charName, a) {
+  if (!CHAR_BUILDS.has(charName)) return "";
+  if (!a) return `<span class="wsq none" title="No ${esc(CHAR_BUILDS.get(charName).wt.toLowerCase())} in your weapon list (Teams > Weapons)">?</span>`;
+  const best = CHAR_BUILDS.get(charName).w[0] === a.w;
+  return `<span class="wsq${best ? " bis" : ""}" title="${esc(a.w)} R${a.r}${best ? " (best weapon)" : ""}"><img src="${wImg(a.w)}" alt="" onerror="this.onerror=null;this.src='${WPH}'"><b>R${a.r}</b></span>`;
+}
+
+let wType = "All", wShowAll = false;
+function renderWeapons() {
+  const inv = plan.weapons || (plan.weapons = {});
+  const owned = ownedWeapons();
+  const fives = [...owned.keys()].filter((n) => findWeapon(n).r === 5).length;
+  $("#wSum").innerHTML = [
+    ["Weapons", String(owned.size)],
+    ["5★ weapons", String(fives)],
+    ["Signature weapons", String([...owned.keys()].filter((n) => Object.values(SIGNATURE).includes(n)).length)],
+  ].map(([k, v]) => `<div class="hs"><span>${k}</span><b>${v}</b></div>`).join("");
+  const seg = $("#wTypeSeg");
+  seg.innerHTML = ["All", ...WEAPON_TYPES].map((t) => `<button class="btn${wType === t ? " on" : ""}" data-wt="${t}">${t}</button>`).join("");
+  seg.querySelectorAll("[data-wt]").forEach((b) => b.onclick = () => { wType = b.dataset.wt; renderWeapons(); });
+  const q = normKey($("#wSearch").value), only = $("#wOwnedOnly").checked;
+  const low = $("#wLow").checked;
+  const sigOf = new Map(Object.entries(SIGNATURE).map(([c, w]) => [w, c]));
+  const list = [...WEAPONS.values()]
+    .filter((w) => wType === "All" || w.t === wType)
+    .filter((w) => !q || normKey(w.n).includes(q) || normKey(sigOf.get(w.n) || "").includes(q))
+    .filter((w) => !only || owned.has(w.n))
+    .filter((w) => low || w.r >= 4 || owned.has(w.n))
+    .sort((a, b) => (owned.has(b.n) - owned.has(a.n)) || (b.r - a.r) || WEAPON_TYPES.indexOf(a.t) - WEAPON_TYPES.indexOf(b.t) || a.n.localeCompare(b.n));
+  $("#wGrid").innerHTML = list.length ? list.map((w) => {
+    const o = owned.get(w.n), fromRoster = o && !inv[w.n];
+    return `<div class="wc r${w.r}${o ? " owned" : ""}" data-w="${esc(w.n)}">
+      <button class="wimg" data-toggle title="${o ? (fromRoster ? "Set on the roster card of " + esc(sigOf.get(w.n)) : "Owned. Click to remove") : "Click to mark as owned"}">
+        <img src="${wImg(w.n)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${WPH}'">
+        <span class="wstars">${"★".repeat(w.r)}</span>
+        <span class="own"></span>
+      </button>
+      <div class="wname">${esc(w.n)}</div>
+      <div class="wmeta">${w.t}${sigOf.has(w.n) ? ` · <span class="sigof">${esc(sigOf.get(w.n))}</span>` : ""}</div>
+      <div class="rctl">${o ? `
+        <div class="stp" title="Refinement"><button data-d="r-1" aria-label="Lower refinement"></button><b>R${o.r}</b><button data-d="r1" aria-label="Raise refinement"></button></div>
+        <div class="stp" title="Copies"><button data-d="n-1" aria-label="Fewer copies"></button><b>×${o.n}</b><button data-d="n1" aria-label="More copies"></button></div>`
+      : `<span class="nown">Not owned</span>`}</div>
+    </div>`;
+  }).join("") : `<div class="empty">No weapon matches.</div>`;
+  $$("#wGrid .wc").forEach((card) => {
+    const n = card.dataset.w;
+    const sigChar = sigOf.get(n);
+    card.querySelector("[data-toggle]").onclick = () => {
+      if (inv[n]) delete inv[n];
+      else if (owned.has(n) && sigChar && plan.roster[sigChar]) plan.roster[sigChar].w = 0; // set on the roster card
+      else inv[n] = { r: 1, n: 1 };
+      save(); renderWeapons();
+    };
+    card.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => {
+      const k = b.dataset.d[0], step = +b.dataset.d.slice(1);
+      const cur = owned.get(n);
+      const o = inv[n] || (inv[n] = { r: cur.r, n: cur.n });
+      if (k === "r") o.r = Math.max(1, Math.min(5, o.r + step));
+      else o.n = Math.max(1, Math.min(9, o.n + step));
+      if (sigChar && plan.roster[sigChar] && plan.roster[sigChar].w > 0) plan.roster[sigChar].w = o.r;
+      save(); renderWeapons();
+    });
+  });
+}
+
+/* ---------------------------------------------------------------- Builds page */
+let buildSel = null, buildEl = "All";
+function prydwenUrl(n) {
+  const slug = n === "Shorekeeper" ? "the-shorekeeper" : n.toLowerCase().replace(/[():]/g, "").trim().replace(/\s+/g, "-");
+  return `https://www.prydwen.gg/wuthering-waves/characters/${slug}`;
+}
+function renderBuilds() {
+  const seg = $("#bElSeg");
+  seg.innerHTML = elSegHtml(buildEl);
+  seg.querySelectorAll("[data-el]").forEach((b) => b.onclick = () => { buildEl = b.dataset.el; renderBuilds(); });
+  const roster = plan.roster || {};
+  const q = normKey($("#bSearch").value);
+  const list = RESONATORS.filter((c) => CHAR_BUILDS.has(c.n))
+    .filter((c) => buildEl === "All" || c.e === buildEl)
+    .filter((c) => !q || normKey(c.n).includes(q))
+    .sort((a, b) => (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || a.n.localeCompare(b.n));
+  if (!buildSel || !CHAR_BUILDS.has(buildSel)) buildSel = (list[0] || RESONATORS[0]).n;
+  $("#bList").innerHTML = list.map((c) => `<button class="pk${roster[c.n] ? "" : " notown"}${c.n === buildSel ? " sel" : ""}" data-b="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}">
+      <span class="tmimg">${portrait("resonators", c.n)}<img class="el" src="${elIcon(c.e)}" alt=""></span>
+      <span class="tmn">${esc(c.n)}</span></button>`).join("") || `<div class="empty">No resonator matches.</div>`;
+  $$("#bList [data-b]").forEach((b) => b.onclick = () => { buildSel = b.dataset.b; renderBuilds(); if (innerWidth < 900) $("#bDetail").scrollIntoView({ behavior: "smooth" }); });
+
+  const c = RES_BY_NAME.get(buildSel), b = CHAR_BUILDS.get(buildSel);
+  const owned = ownedWeapons();
+  const mine = [...owned].map(([n, o]) => ({ n, o, sc: weaponScore(c.n, n, o.r) })).filter((x) => x.sc >= 0).sort((x, y) => y.sc - x.sc)[0];
+  const wRow = (n, i) => {
+    const w = findWeapon(n), o = owned.get(n);
+    return `<div class="bw${o ? " have" : ""}">
+      <img src="${wImg(n)}" alt="" onerror="this.onerror=null;this.src='${WPH}'">
+      <div><b>${esc(n)}</b><small>${i === 0 ? "Best" : "Alternative " + i} · ${w ? "★".repeat(w.r) : ""}${SIGNATURE[c.n] === n ? " · Signature" : ""}</small></div>
+      <span class="bown">${o ? "Owned R" + o.r : ""}</span></div>`;
+  };
+  $("#bDetail").innerHTML = `
+    <div class="bhead" style="--el:${EL_COLOR[c.e]}">
+      <span class="tmimg big">${portrait("resonators", c.n)}<img class="el" src="${elIcon(c.e)}" alt=""></span>
+      <div>
+        <h2 class="bname">${esc(c.n)}</h2>
+        <div class="bmeta">${"★".repeat(c.r)} · ${c.e} · ${b.wt} · ${ROLE_LABEL[c.role]}</div>
+        <div class="bmine">${mine ? `Your best fitting weapon: <b>${esc(mine.n)}</b> R${mine.o.r}` : `You have no ${b.wt.toLowerCase()} in your weapon list yet.`}
+          <button class="link" id="bToWeapons">Edit weapons</button></div>
+      </div>
+    </div>
+    <div class="bsec"><div class="label">Weapons</div>${b.w.map(wRow).join("")}
+      ${b.w.length < 2 ? `<div class="note">Other weapons of the type ${b.wt} are rated by rarity and substat when the planner picks one from your list.</div>` : ""}</div>
+    <div class="bsec"><div class="label">Echoes</div>
+      <div class="kv"><span>Echo set</span><b>${esc(b.set)}</b><span>Main echo</span><b>${esc(b.echo)}</b></div></div>
+    <div class="bsec"><div class="label">Echo main stats</div>
+      <div class="kv"><span>4-cost</span><b>${esc(b.ms[0])}</b><span>3-cost</span><b>${esc(b.ms[1])}</b><span>1-cost</span><b>${esc(b.ms[2])}</b></div></div>
+    <div class="bsec blinks"><div class="label">More details</div>
+      <a href="${BUILD_INFO.sites[0].url}" target="_blank" rel="noopener">Game8 builds</a>
+      <a href="${prydwenUrl(c.n)}" target="_blank" rel="noopener">Prydwen: ${esc(c.n)}</a></div>`;
+  $("#bToWeapons").onclick = () => { showPage("teams"); setTeamTab("weapons"); };
+  $("#bSrc").innerHTML = `Build data from ${BUILD_INFO.sites.map((x) => `<a href="${x.url}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join(" and ")}, version ${BUILD_INFO.version} (${BUILD_INFO.updated}). Community recommendations, not official.`;
+}
+
 /* One team row. opts: {owned, custom, idx} */
 function teamRow(t, owned, opts = {}) {
   const slots = [0, 1, 2].map((i) => t.members[i] || null);
+  const wa = assignWeapons(slots, ownedWeapons());
   const pull = teamPullChance(t, owned);
   const overall = t.chance * pull;
   const mem = slots.map((n, i) => {
@@ -1099,7 +1241,7 @@ function teamRow(t, owned, opts = {}) {
     const c = RES_BY_NAME.get(n), x = owned.get(n) || { s: 0, w: 0 };
     const tag = n === t.carry ? `<span class="ctag">Carry</span>` : "";
     return `<${opts.custom ? `button data-slot="${i}"` : "div"} class="tm${x.planned ? " planned" : ""}" style="--el:${EL_COLOR[c.e]}">
-      <span class="tmimg">${portrait("resonators", n)}<img class="el" src="${elIcon(c.e)}" alt="">${tag}</span>
+      <span class="tmimg">${portrait("resonators", n)}<img class="el" src="${elIcon(c.e)}" alt="">${tag}${weaponSquare(n, wa[i])}</span>
       <span class="tmn">${esc(n)}</span>
       <span class="tmv">${x.newFromGoal ? "Target" + (x.s ? " " + seqTxt(x) : "") : seqTxt(x)} · ${weapTxt(x)}</span>
     </${opts.custom ? "button" : "div"}>`;
@@ -1647,6 +1789,10 @@ function bindInputs() {
 
   // Teams page
   $$("#teamTabs .btn").forEach((b) => b.onclick = () => setTeamTab(b.dataset.ttab));
+  $("#wSearch").oninput = renderWeapons;
+  $("#wOwnedOnly").onchange = renderWeapons;
+  $("#wLow").onchange = renderWeapons;
+  $("#bSearch").oninput = renderBuilds;
   $("#rosterSearch").addEventListener("input", renderRoster);
   $("#ownedOnly").addEventListener("change", renderRoster);
   $("#btnRosterImport").onclick = importRosterFromHistory;
@@ -1711,6 +1857,14 @@ function migrate(p) {
   out.scenarios = out.scenarios.map((s) => ({ ...s, name: String(s.name || "").replace(/^Szenario /, "Scenario "), plan: migrateLite(s.plan) }));
   if (![0.5, 0.75, 0.9, 1].includes(+out.dayTarget)) out.dayTarget = 0.5;
   if (!out.roster || typeof out.roster !== "object") out.roster = {};
+  const wq = {};
+  if (out.weapons && typeof out.weapons === "object") {
+    for (const [n, v] of Object.entries(out.weapons)) {
+      const w = findWeapon(n);
+      if (w) wq[w.n] = { r: Math.max(1, Math.min(5, v.r | 0 || 1)), n: Math.max(1, Math.min(9, v.n | 0 || 1)) };
+    }
+  }
+  out.weapons = wq;
   const clean = {};
   for (const [n, v] of Object.entries(out.roster)) {
     const c = findResonator(n);
@@ -1896,7 +2050,7 @@ async function init() {
     doSync({ url });
   };
   try { teamTab = localStorage.getItem("wuwaTeamTab") || "roster"; } catch (e) { /* ignore */ }
-  if (!["roster", "best", "mine"].includes(teamTab)) teamTab = "roster";
+  if (!["roster", "weapons", "best", "mine"].includes(teamTab)) teamTab = "roster";
   setTeamTab(teamTab);
   let start = "overview";
   try { start = localStorage.getItem("wuwaPage") || "overview"; } catch (e) { /* ignore */ }
