@@ -149,7 +149,7 @@
             </div>
             <label class="chk"><input type="checkbox" data-k="todayClaimed"><i></i>Today's dailies are already in my inventory</label>
             <div class="note" id="incomeNote"></div>
-            <div class="note">Targets use the end of their own banner (set it on the target card). The default end is for targets without one.</div>
+            <div class="note">Targets use the end of their own banner (set it on the target card). The default end is for targets without a date, for example resonators that are not announced yet.</div>
           </div>
           <div class="panel">
             <h2>Other sources</h2>
@@ -437,6 +437,7 @@
     <datalist id="resList"></datalist>
     <label class="field"><span>Banner end</span><select id="goalBanner"></select></label>
     <label class="field hidden" id="goalEndWrap"><span>Last day of the banner</span><input type="date" id="goalEnd"></label>
+    <div class="note" id="goalHint"></div>
     <div class="msg err" id="goalMsg"></div>
     <div class="row gap">
       <button class="btn primary" id="goalOk"><img src="assets/ic_import_dark.png" alt=""><span id="goalOkTxt">Add</span></button>

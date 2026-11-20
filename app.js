@@ -636,7 +636,7 @@ function renderGoals(ev) {
         <div class="tools">${canMove ? `<button class="mv" data-mv="${idx}" title="Pull earlier" aria-label="Pull earlier"></button>` : ""}<button class="rm" data-rm="${idx}" title="Remove" aria-label="Remove"></button></div>
         <div class="nm">${esc(sig || gl.name || (isW ? "Weapon" : "Resonator"))}${isW && gl.for ? `<small>for ${esc(gl.for)}</small>` : ""}</div>
       </div>
-      <button class="gend" data-edit="${idx}" title="Change target or banner end">${endLabel(x.end)}</button>
+      <button class="gend" data-edit="${idx}" title="Change target or banner end">${isoOk(gl.end) ? endLabel(x.end) : `no date yet · ${fmtShort(x.end)}`}</button>
       <div class="gfoot">
         <div class="gp"><span>${i === 0 ? "Chance" : "up to here"}</span><b>${pct(x.prob)}</b></div>
         <div class="bar"><div class="fill${i === ev.per.length - 1 ? "" : " cyanfill"}" style="width:${x.prob * 100}%"></div></div>
@@ -680,24 +680,39 @@ function openGoalModal(idx = -1) {
 function fillBannerSelect(end) {
   const today = isoOf(serverToday());
   const sel = $("#goalBanner");
-  sel.innerHTML = [`<option value="">Default end (${fmtDate(plan.endDate)})</option>`]
+  sel.innerHTML = [`<option value="">Date not known yet</option>`]
     .concat(BANNERS.filter((b) => b.end >= today).map((b) => `<option value="${b.end}">${esc(b.label)} (until ${fmtDate(b.end)})</option>`))
     .concat([`<option value="custom">Other date …</option>`]).join("");
   if (!isoOk(end)) sel.value = "";
   else if (BANNERS.some((b) => b.end === end && b.end >= today)) sel.value = end;
   else { sel.value = "custom"; $("#goalEnd").value = end; }
   $("#goalEndWrap").classList.toggle("hidden", sel.value !== "custom");
+  updateGoalHint();
+}
+
+/* Explains what happens without a date (resonators that are not announced yet have no banner end). */
+function updateGoalHint() {
+  const v = $("#goalBanner").value, box = $("#goalHint");
+  if (v === "custom") { box.textContent = "The date is optional. Leave it empty if you do not know it yet."; return; }
+  if (v !== "") { box.textContent = ""; return; }
+  const c = (goalType === "weapon" && findResonator($("#goalFor").value)) || findResonator($("#goalName").value);
+  const today = isoOf(serverToday());
+  const known = c && BANNERS.some((x) => x.end >= today && x.resonators.includes(c.n));
+  box.innerHTML = `Without a date your pulls are counted until the default end (<b>${fmtDate(plan.endDate)}</b>). ` +
+    (c && !known ? `${esc(c.n)} has no announced banner yet. ` : "") + `Change the default end on the Resources page, or set the date here once it is announced.`;
 }
 
 /* Pick the banner of a resonator automatically while typing. */
 function suggestBanner() {
   const sel = $("#goalBanner");
   if (sel.value !== "") return;
+  updateGoalHint();
   const c = (goalType === "weapon" && findResonator($("#goalFor").value)) || findResonator($("#goalName").value);
   if (!c) return;
   const today = isoOf(serverToday());
   const b = BANNERS.find((x) => x.end >= today && x.resonators.includes(c.n));
   if (b) sel.value = b.end;
+  updateGoalHint();
 }
 
 /* Suggestions for the name field: resonator names for resonator targets, weapon names for weapon targets. */
@@ -740,8 +755,7 @@ function addGoal() {
     if (!name) name = "Resonator";
   }
   const sel = $("#goalBanner").value;
-  const end = sel === "custom" ? $("#goalEnd").value : sel;
-  if (sel === "custom" && !isoOk(end)) { $("#goalMsg").textContent = "Pick a date."; return; }
+  const end = sel === "custom" ? $("#goalEnd").value : sel;   // empty custom date = not known yet = default end
   const g = { type: isW ? "weapon" : "char", name: name.slice(0, 40) };
   if (isW && forN) g.for = forN.slice(0, 40);
   if (isoOk(end)) g.end = end;
@@ -1613,7 +1627,7 @@ function openSetup() {
   $("#suTarget").value = "";
   $("#suBanner").innerHTML = BANNERS.filter((b) => b.end >= today)
     .map((b) => `<option value="${b.end}">${esc(b.label)} (until ${fmtDate(b.end)})</option>`).join("") +
-    `<option value="">Default end (${fmtDate(plan.endDate)})</option>`;
+    `<option value="">Date not known yet</option>`;
   $("#suList").innerHTML = RESONATORS.filter((c) => c.r === 5).map((c) => `<option value="${esc(c.n)}">`).join("");
   $("#setupModal").classList.remove("hidden");
 }
@@ -1768,7 +1782,7 @@ function bindInputs() {
   }));
   $("#btnModelReset").onclick = () => { plan.model = setModel(DEFAULT_MODEL); fillModel(); save(); calculate(); renderHistory(); };
   $("#btnSetup").onclick = openSetup;
-  $("#goalBanner").onchange = () => $("#goalEndWrap").classList.toggle("hidden", $("#goalBanner").value !== "custom");
+  $("#goalBanner").onchange = () => { $("#goalEndWrap").classList.toggle("hidden", $("#goalBanner").value !== "custom"); updateGoalHint(); };
   $("#goalName").addEventListener("input", suggestBanner);
   $("#goalFor").addEventListener("input", suggestBanner);
   $$(".nav").forEach((b) => b.onclick = () => showPage(b.dataset.page));
