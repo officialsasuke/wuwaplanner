@@ -2315,7 +2315,7 @@ init();
     // learn the frame time of the display (60, 120, 144 Hz ...) and draw on every n-th frame: a steady rhythm, no judder
     const g = now - prevRaf; prevRaf = now;
     if (g > 2 && g < 100) { dtWin.push(g); if (dtWin.length >= 40) { rafDt = Math.max(4, Math.min(...dtWin)); dtWin.length = 0; } }
-    const q = TIERS[Math.min(tier, 2)], target = !cap ? q.fps : tier === 0 ? cap : Math.min(q.fps, cap),   // a higher limit only applies at full quality skip = Math.max(1, Math.floor(1000 / target / rafDt + .4));
+    const q = TIERS[Math.min(tier, 2)], target = !cap ? q.fps : tier === 0 ? cap : Math.min(q.fps, cap), skip = Math.max(1, Math.floor(1000 / target / rafDt + .4));
     if (++nTick % skip) return;
     const since = now - lastDraw; lastDraw = now;
     const dt = Math.min(.1, since / 1000), t0 = performance.now();
