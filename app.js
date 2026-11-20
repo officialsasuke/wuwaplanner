@@ -509,7 +509,8 @@ function calculate() {
   if (page === "analysis") renderAnalysis(ev, r, cp, g);
   if (page === "scenarios") renderScenarios(ev);
   if (page === "history") renderLuck();
-  if (page === "teams") renderTeamsPage();
+  const typing = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("tnamein");
+  if (page === "teams" && !typing) renderTeamsPage();   // rebuilding would drop the focus and close the keyboard
 }
 
 function serverText() {
@@ -1335,7 +1336,7 @@ function openPicker(teamIdx, slot) {
   $("#pickTitle").textContent = `Choose resonator ${slot + 1}`;
   renderPicker();
   $("#pickModal").classList.remove("hidden");
-  setTimeout(() => $("#pickSearch").focus(), 30);
+  if (!matchMedia("(pointer: coarse)").matches) setTimeout(() => $("#pickSearch").focus(), 30);   // on a phone the keyboard would cover the list
 }
 
 function renderPicker() {
@@ -1809,7 +1810,10 @@ function bindInputs() {
   };
   $("#pickModal").addEventListener("click", (e) => { if (e.target.id === "pickModal") $("#pickModal").classList.add("hidden"); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $$(".modal").forEach((m) => m.classList.add("hidden")); });
-  window.addEventListener("resize", scheduleCalc);
+  // Phones fire resize when the keyboard or address bar moves (height only). Redrawing then would rebuild the
+  // page under the finger and close the keyboard, so only a real width change (rotation, window size) recalculates.
+  let lastW = innerWidth;
+  window.addEventListener("resize", () => { if (innerWidth !== lastW) { lastW = innerWidth; scheduleCalc(); } });
 }
 
 /* ---------------------------------------------------------------- Saving / server */
@@ -2100,9 +2104,14 @@ init();
     return p;
   }
   function resize() {
+    const nw = document.documentElement.clientWidth || innerWidth, nh = innerHeight;
+    // Phones fire resize whenever the address bar or keyboard moves, and then only the height changes.
+    // Keep the tallest height seen so the picture is never stretched and the stars do not jump around.
+    if (h && nw === w && nh <= h) return;
     dpr = Math.min(1.5, window.devicePixelRatio || 1);
-    w = innerWidth; h = innerHeight; R = Math.max(w, h);
+    w = nw; h = nh; R = Math.max(w, h);
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    cv.style.width = w + "px"; cv.style.height = h + "px";   // same size as the buffer, never the changing 100vh
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     build();
   }
