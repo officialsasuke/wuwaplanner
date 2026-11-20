@@ -183,8 +183,10 @@
           <label class="field"><span>Frame rate limit</span>
             <select id="bgFps">
               <option value="auto">Automatic (up to 60)</option>
-              <option value="60">60 fps</option>
               <option value="30">30 fps (saves power)</option>
+              <option value="60">60 fps</option>
+              <option value="120">120 fps</option>
+              <option value="180">180 fps</option>
             </select>
           </label>
           <label class="field"><span>Interface animations</span>
@@ -193,7 +195,7 @@
               <option value="off">Off (no fading or sliding)</option>
             </select>
           </label>
-          <div class="note">Automatic lowers the quality, or stops the background animation, when your browser is slow. If the page feels laggy, try 30 fps or Off.</div>
+          <div class="note">Automatic lowers the quality, or stops the background animation, when your browser is slow. If the page feels laggy, try 30 fps or Off. Frame rates above 60 only help on a monitor with a matching refresh rate and use more power.</div>
           <div class="note" id="bgNote"></div>
           <div class="note" id="bgStat"></div>
           <div class="note">These settings are saved on this device only.</div>
