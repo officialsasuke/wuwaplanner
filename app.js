@@ -1247,22 +1247,29 @@ function renderBuilds() {
   const SUB = { crit: "CRIT", atk: "ATK%", er: "Energy Regen", hp: "HP%", def: "DEF%" };
 
   /* one weapon as a photo tile; kind: "best" | "alt" | "more" */
+  const showDmg = c.role !== "heal";   // for healers weapon damage is not what matters
+  const dmg = (n) => (showDmg ? weaponDmgPct(c.n, b.w[0], n) : null);
   const wTile = (n, kind, label) => {
-    const w = findWeapon(n), o = owned.get(n), sc = Math.max(0, Math.min(100, weaponScore(c.n, n, 1)));
+    const w = findWeapon(n), o = owned.get(n), d = dmg(n), sc = d ? Math.max(0, Math.min(100, 100 + d.pct)) : Math.max(0, Math.min(100, weaponScore(c.n, n, 1)));
     const sig = SIGNATURE[c.n] === n, other = !sig && Object.values(SIGNATURE).includes(n);
     return `<div class="wt ${kind}${o ? " have" : ""}" title="${esc(n)}${w ? " · " + w.r + "★ · " + (SUB[w.s] || "") : ""}">
       <span class="wtimg"><img src="${wImg(n)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${WPH}'">${o ? `<i class="wtown">R${o.r}</i>` : ""}</span>
       <span class="wtlab">${esc(label)}</span>
       <b class="wtn">${esc(n)}</b>
       <small>${w ? "★".repeat(w.r) : ""}${w && SUB[w.s] ? " · " + SUB[w.s] : ""}${sig ? " · Signature" : other ? " · Other's signature" : ""}</small>
-      <span class="wtbar" title="Rough fit for ${esc(c.n)} (rarity and substat)"><i style="width:${sc}%"></i></span>
+      ${d ? `<span class="wtdmg ${d.ref ? "ref" : d.tested ? "tested" : "est"}" title="${d.ref ? "Reference weapon" : d.tested ? "Tested in game" + (d.lib != null ? ": Liberation DMG " + (d.lib > 0 ? "+" : "") + d.lib + "%" : "") : "Rough estimate from stats, passive not counted"}">${d.ref ? "100%" : (d.tested ? "" : "\u2248 ") + (d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "") + (d.tested ? Math.abs(d.pct).toFixed(1) : Math.round(Math.abs(d.pct))) + "%"}<em>${d.ref ? "reference" : d.tested ? "tested" : "est."}</em></span>` : ""}
+      <span class="wtbar"><i style="width:${sc}%"></i></span>
     </div>`;
   };
-  const more = [...WEAPONS.values()]
-    .filter((w) => w.t === b.wt && !listed.has(w.n) && w.r >= 4)
-    .map((w) => ({ w, sc: weaponScore(c.n, w.n, 1) }))
-    .sort((x, y) => y.sc - x.sc || y.w.r - x.w.r)
-    .slice(0, 8);
+  const moreAll = [...WEAPONS.values()]
+    .filter((w) => w.t === b.wt && !listed.has(w.n) && (w.r >= 4 || owned.has(w.n)))
+    .map((w) => { const d = dmg(w.n); return { w, sc: d ? d.pct : weaponScore(c.n, w.n, 1) }; })
+    .sort((x, y) => y.sc - x.sc || y.w.r - x.w.r);
+  const more = moreAll.slice(0, 8).concat(moreAll.slice(8).filter((x) => owned.has(x.w.n)).slice(0, 4));
+  const test = DMG_TESTS[c.n] && DMG_TESTS[c.n].ref === b.w[0] ? DMG_TESTS[c.n] : null;
+  const dmgNote = !showDmg ? `Damage differences are not shown for healers, their weapon matters for energy, healing and buffs.`
+    : `Percentages are the damage difference to <b>${esc(b.w[0])}</b>.` + (test ? ` <b>Tested</b> values are from in-game runs (${esc(test.metric)}, Lv 90, R1; <a href="${test.src.url}" target="_blank" rel="noopener">${esc(test.src.label)}</a>).` : "")
+      + ` <b>Est.</b> is a rough estimate from base ATK, substat and a typical ATK passive. Real weapon passives are not counted, so the real gap can be bigger or smaller.`;
 
   /* stat chips with an icon */
   const statIcon = (t) => {
@@ -1306,13 +1313,15 @@ function renderBuilds() {
       </div>
     </div>
 
-    <div class="bsec"><div class="label">Best weapon</div>
+    <div class="bsec"><div class="label">Best weapon <em>damage compared to it, see below</em></div>
       <div class="wtgrid one">${wTile(b.w[0], "best", "Best in slot")}</div></div>
     ${b.w.length > 1 ? `<div class="bsec"><div class="label">Alternatives <em>from the build guides</em></div>
       <div class="wtgrid">${b.w.slice(1).map((n, i) => wTile(n, "alt", "Alternative " + (i + 1))).join("")}</div></div>` : ""}
-    ${more.length ? `<div class="bsec"><div class="label">More ${b.wt.toLowerCase()} options <em>rated by rarity and substat</em></div>
+    ${more.length ? `<div class="bsec"><div class="label">More ${b.wt.toLowerCase()} options <em>${showDmg ? "sorted by damage" : "rated by rarity and substat"}</em></div>
       <div class="wtgrid">${more.map(({ w }) => wTile(w.n, "more", w.r === 5 ? "5★ stat stick" : "4★ budget")).join("")}</div>
-      <div class="note">The bar is a rough fit for ${esc(c.n)}. Weapons with the right substat and a high rarity score higher. A golden frame means you own it.</div></div>` : ""}
+      </div>` : ""}
+
+    <div class="note bdmgnote">${dmgNote} A golden frame means you own the weapon.</div>
 
     <div class="bsec"><div class="label">Echoes</div>
       <div class="brow"><span class="bk">Echo set</span><div>${setChips(b.set)}</div></div>

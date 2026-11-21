@@ -704,3 +704,11 @@ details.adv > summary h2 em { font-style: normal; font-size: 11px; letter-spacin
 details.adv > summary::after { content: ""; width: 9px; height: 9px; border-right: 2px solid var(--gold); border-bottom: 2px solid var(--gold); transform: rotate(45deg); margin: 0 6px 4px 0; transition: transform .15s; }
 details.adv[open] > summary::after { transform: rotate(-135deg); margin-bottom: -2px; }
 details.adv[open] > summary { margin-bottom: 12px; }
+
+.wtdmg { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-size: 15px; font-weight: 800; font-stretch: 85%; color: #fff; }
+.wtdmg em { font-style: normal; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--muted); }
+.wtdmg.tested { color: #8fe0a5; } .wtdmg.tested em { color: #8fe0a5; }
+.wtdmg.est { color: #e9e4d2; }
+.wtdmg.ref { color: var(--gold-l); }
+.bdmgnote { margin: 4px 0 18px; }
+.bdmgnote a { color: var(--gold-l); }

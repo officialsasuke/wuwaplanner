@@ -201,3 +201,41 @@ function assignWeapons(members, owned) {
   })(0, [], 0);
   return best || members.map(() => null);
 }
+
+
+/* ---------- Weapon damage comparison ----------
+   TESTED: published in-game hologram runs (same character, echoes and rotation, Lv 90, R1). Values are the difference to the
+   reference weapon in percent: [Heavy Attack DMG, Resonance Liberation DMG]. Add more characters here when a source exists.
+   ESTIMATE: for everything else, a rough model (below) from base ATK, substat and a typical ATK passive. */
+const DMG_TESTS = {
+  Qingxiao: {
+    ref: "Glint of Clouds",
+    metric: "Heavy Attack and Resonance Liberation DMG, Fallacy of No Return hologram (stage VI)",
+    src: { label: "allthings.how", url: "https://allthings.how/wuthering-waves-is-qingxiao-s-signature-weapon-worth-it/" },
+    rows: { "Blazing Brilliance": [1.0, 0.1], "Emerald Sentence": [-13.2, -14.0] },
+  },
+};
+const DMG_MODEL = {
+  charAtk: 450, atkBonus: 0.5, flat: 300, baseCr: 0.65, baseCd: 2.0,   // a typical built carry
+  bisPremium: 0.15,   // the best weapon usually carries a passive worth about this much (calibrated on the Qingxiao test)
+  // Lv 90 stats by rarity: base ATK, substat values (CRIT Rate / ATK%), passive worth in ATK% (a typical "+ATK%" passive)
+  tier: { 5: { atk: 587, crit: 0.243, atkp: 0.364, pas: 0.12 }, 4: { atk: 412, crit: 0.2025, atkp: 0.3038, pas: 0.08 },
+          3: { atk: 337, crit: 0.162, atkp: 0.243, pas: 0.04 } },
+  erValue: 0.08,      // Energy Regen is counted as a little ATK%
+};
+function weaponDmgIndex(w) {
+  const m = DMG_MODEL, t = m.tier[w.r] || m.tier[3];
+  const atkp = m.atkBonus + t.pas + (w.s === "atk" ? t.atkp : 0) + (w.s === "er" ? m.erValue : 0);
+  const cr = Math.min(1, m.baseCr + (w.s === "crit" ? t.crit : 0));
+  return ((m.charAtk + t.atk) * (1 + atkp) + m.flat) * (1 + cr * (m.baseCd - 1));
+}
+/* Difference to the best weapon in percent. Returns { pct, tested, lib } or null when it cannot be told. */
+function weaponDmgPct(charName, bestName, name) {
+  if (name === bestName) return { pct: 0, tested: false, ref: true };
+  const test = DMG_TESTS[charName];
+  if (test && test.ref === bestName && test.rows[name]) return { pct: test.rows[name][0], lib: test.rows[name][1], tested: true };
+  const w = findWeapon(name), bw = findWeapon(bestName);
+  if (!w || !bw) return null;
+  const ref = weaponDmgIndex(bw) * (bw.r === 5 ? 1 + DMG_MODEL.bisPremium : 1);
+  return { pct: Math.round((weaponDmgIndex(w) / ref - 1) * 1000) / 10, tested: false };
+}
