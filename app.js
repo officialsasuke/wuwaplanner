@@ -466,12 +466,23 @@ function scheduleCalc() {
   calcTimer = setTimeout(calculate, 60);
 }
 
+/* Pages that share one entry in the side bar. The first page of a group is the entry; the others are reached with the small tabs on top. */
+const PAGE_GROUPS = [["analysis", "scenarios"], ["settings", "images"]];
+const SUB_LABEL = { analysis: "Analysis", scenarios: "Scenarios", settings: "Settings", images: "Images" };
+const groupHead = (p) => (PAGE_GROUPS.find((g) => g.includes(p)) || [p])[0];
+PAGE_GROUPS.forEach((g) => g.forEach((id) => {
+  const sec = document.getElementById("page-" + id);
+  if (sec) sec.insertAdjacentHTML("afterbegin", `<div class="seg subnav">${g.map((x) => `<button class="btn" data-sub="${x}">${SUB_LABEL[x]}</button>`).join("")}</div>`);
+}));
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-sub]"); if (b) showPage(b.dataset.sub); });
+
 function showPage(p) {
   if (!PAGES[p]) p = "overview";
   page = p;
   $$(".page").forEach((s) => s.classList.toggle("hidden", s.id !== "page-" + p));
+  $$(".subnav .btn").forEach((b) => b.classList.toggle("on", b.dataset.sub === p));
   $$(".nav").forEach((b) => {
-    const on = b.dataset.page === p;
+    const on = b.dataset.page === groupHead(p);
     b.classList.toggle("on", on);
     const img = b.querySelector("img");
     if (!img.dataset.light) img.dataset.light = img.getAttribute("src");
@@ -1230,30 +1241,90 @@ function renderBuilds() {
 
   const c = RES_BY_NAME.get(buildSel), b = CHAR_BUILDS.get(buildSel);
   const owned = ownedWeapons();
+  const myRes = ownedMap(false).get(c.n);
   const mine = [...owned].map(([n, o]) => ({ n, o, sc: weaponScore(c.n, n, o.r) })).filter((x) => x.sc >= 0).sort((x, y) => y.sc - x.sc)[0];
-  const wRow = (n, i) => {
-    const w = findWeapon(n), o = owned.get(n);
-    return `<div class="bw${o ? " have" : ""}">
-      <img src="${wImg(n)}" alt="" onerror="this.onerror=null;this.src='${WPH}'">
-      <div><b>${esc(n)}</b><small>${i === 0 ? "Best" : "Alternative " + i} · ${w ? "★".repeat(w.r) : ""}${SIGNATURE[c.n] === n ? " · Signature" : ""}</small></div>
-      <span class="bown">${o ? "Owned R" + o.r : ""}</span></div>`;
+  const listed = new Set(b.w);
+  const SUB = { crit: "CRIT", atk: "ATK%", er: "Energy Regen", hp: "HP%", def: "DEF%" };
+
+  /* one weapon as a photo tile; kind: "best" | "alt" | "more" */
+  const wTile = (n, kind, label) => {
+    const w = findWeapon(n), o = owned.get(n), sc = Math.max(0, Math.min(100, weaponScore(c.n, n, 1)));
+    const sig = SIGNATURE[c.n] === n, other = !sig && Object.values(SIGNATURE).includes(n);
+    return `<div class="wt ${kind}${o ? " have" : ""}" title="${esc(n)}${w ? " · " + w.r + "★ · " + (SUB[w.s] || "") : ""}">
+      <span class="wtimg"><img src="${wImg(n)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${WPH}'">${o ? `<i class="wtown">R${o.r}</i>` : ""}</span>
+      <span class="wtlab">${esc(label)}</span>
+      <b class="wtn">${esc(n)}</b>
+      <small>${w ? "★".repeat(w.r) : ""}${w && SUB[w.s] ? " · " + SUB[w.s] : ""}${sig ? " · Signature" : other ? " · Other's signature" : ""}</small>
+      <span class="wtbar" title="Rough fit for ${esc(c.n)} (rarity and substat)"><i style="width:${sc}%"></i></span>
+    </div>`;
   };
+  const more = [...WEAPONS.values()]
+    .filter((w) => w.t === b.wt && !listed.has(w.n) && w.r >= 4)
+    .map((w) => ({ w, sc: weaponScore(c.n, w.n, 1) }))
+    .sort((x, y) => y.sc - x.sc || y.w.r - x.w.r)
+    .slice(0, 8);
+
+  /* stat chips with an icon */
+  const statIcon = (t) => {
+    const l = t.toLowerCase();
+    const el = ELEMENTS.find((x) => l.includes(x.toLowerCase()));
+    if (el) return elIcon(el);
+    if (/crit/.test(l)) return "assets/ic_star.png";
+    if (/energy/.test(l)) return "assets/ic_sync.png";
+    if (/atk/.test(l)) return "assets/ic_sword.png";
+    if (/hp|def/.test(l)) return "assets/ic_shield.png";
+    if (/heal/.test(l)) return "assets/ic_plus.png";
+    return "";
+  };
+  const statChips = (txt) => !txt || txt === "–" ? `<span class="chip none">none</span>`
+    : txt.split(/\s+or\s+|\s*&\s*/).map((t) => { const ic = statIcon(t); return `<span class="chip">${ic ? `<img src="${ic}" alt="">` : ""}${esc(t)}</span>`; }).join(`<span class="orsep">or</span>`);
+  const setChips = (txt) => txt.split(/\s*\+\s*/).map((p) => {
+    const m = /^(\d)-pc\s+(.*)$/.exec(p);
+    return `<span class="chip set">${m ? `<em>${m[1]}</em>${esc(m[2])}` : esc(p)}</span>`;
+  }).join("");
+
+  /* teams that use this resonator */
+  const tierRank = (t) => parseFloat(t.tier.slice(1));
+  const asCarry = TEAM_TEMPLATES.filter((t) => t.slots[0].includes(c.n)).sort((x, y) => tierRank(x) - tierRank(y));
+  const asHelper = TEAM_TEMPLATES.filter((t) => !t.slots[0].includes(c.n) && (t.slots[1].includes(c.n) || t.slots[2].includes(c.n))).sort((x, y) => tierRank(x) - tierRank(y));
+  const pt = (n, cls = "") => {
+    const r = RES_BY_NAME.get(n);
+    return `<span class="pt${cls}${n === c.n ? " me" : ""}${r && ownedMap(false).has(n) ? "" : " notown"}" title="${esc(n)}">${portrait("resonators", n)}${r ? `<img class="el" src="${elIcon(r.e)}" alt="">` : ""}<small>${esc(n.replace(/^Rover \((.*)\)$/, "Rover $1").replace(/^Yangyang: /, ""))}</small></span>`;
+  };
+  const teamBlock = (t, carry) => `<div class="bteam"><div class="bth"><span class="tier t${t.tier.replace(".", "")}">${t.tier}</span><b>${esc(t.name)}</b></div>
+      <div class="btslots">${t.slots.map((g, i) => `<div class="btg"><span class="btl">${["Carry", "Sub-DPS / support", "Support / healer"][i]}</span><div>${g.map((n) => pt(n)).join("")}</div></div>`).join("")}</div></div>`;
+
   $("#bDetail").innerHTML = `
     <div class="bhead" style="--el:${EL_COLOR[c.e]}">
       <span class="tmimg big">${portrait("resonators", c.n)}<img class="el" src="${elIcon(c.e)}" alt=""></span>
       <div>
         <h2 class="bname">${esc(c.n)}</h2>
-        <div class="bmeta">${"★".repeat(c.r)} · ${c.e} · ${b.wt} · ${ROLE_LABEL[c.role]}</div>
-        <div class="bmine">${mine ? `Your best fitting weapon: <b>${esc(mine.n)}</b> R${mine.o.r}` : `You have no ${b.wt.toLowerCase()} in your weapon list yet.`}
+        <div class="bchips"><span class="chip"><img src="${elIcon(c.e)}" alt="">${c.e}</span><span class="chip">${"★".repeat(c.r)}</span><span class="chip">${b.wt}</span><span class="chip">${ROLE_LABEL[c.role]}</span></div>
+        <div class="bmine">${myRes ? `You own ${esc(c.n)}: S${myRes.s}${myRes.w > 0 ? ", signature R" + myRes.w : ", no signature weapon"}.` : `You do not own ${esc(c.n)} yet.`}
+          ${mine ? `Best fitting weapon in your list: <b>${esc(mine.n)}</b> R${mine.o.r}.` : `No ${b.wt.toLowerCase()} in your weapon list yet.`}
           <button class="link" id="bToWeapons">Edit weapons</button></div>
       </div>
     </div>
-    <div class="bsec"><div class="label">Weapons</div>${b.w.map(wRow).join("")}
-      ${b.w.length < 2 ? `<div class="note">Other weapons of the type ${b.wt} are rated by rarity and substat when the planner picks one from your list.</div>` : ""}</div>
+
+    <div class="bsec"><div class="label">Best weapon</div>
+      <div class="wtgrid one">${wTile(b.w[0], "best", "Best in slot")}</div></div>
+    ${b.w.length > 1 ? `<div class="bsec"><div class="label">Alternatives <em>from the build guides</em></div>
+      <div class="wtgrid">${b.w.slice(1).map((n, i) => wTile(n, "alt", "Alternative " + (i + 1))).join("")}</div></div>` : ""}
+    ${more.length ? `<div class="bsec"><div class="label">More ${b.wt.toLowerCase()} options <em>rated by rarity and substat</em></div>
+      <div class="wtgrid">${more.map(({ w }) => wTile(w.n, "more", w.r === 5 ? "5★ stat stick" : "4★ budget")).join("")}</div>
+      <div class="note">The bar is a rough fit for ${esc(c.n)}. Weapons with the right substat and a high rarity score higher. A golden frame means you own it.</div></div>` : ""}
+
     <div class="bsec"><div class="label">Echoes</div>
-      <div class="kv"><span>Echo set</span><b>${esc(b.set)}</b><span>Main echo</span><b>${esc(b.echo)}</b></div></div>
+      <div class="brow"><span class="bk">Echo set</span><div>${setChips(b.set)}</div></div>
+      <div class="brow"><span class="bk">Main echo</span><div><span class="chip echo">${esc(b.echo)}</span></div></div></div>
     <div class="bsec"><div class="label">Echo main stats</div>
-      <div class="kv"><span>4-cost</span><b>${esc(b.ms[0])}</b><span>3-cost</span><b>${esc(b.ms[1])}</b><span>1-cost</span><b>${esc(b.ms[2])}</b></div></div>
+      <div class="brow"><span class="bk">4-cost</span><div>${statChips(b.ms[0])}</div></div>
+      <div class="brow"><span class="bk">3-cost</span><div>${statChips(b.ms[1])}</div></div>
+      <div class="brow"><span class="bk">1-cost</span><div>${statChips(b.ms[2])}</div></div></div>
+
+    ${asCarry.length ? `<div class="bsec"><div class="label">Best teams <em>${esc(c.n)} as the carry</em></div>${asCarry.slice(0, 4).map((t) => teamBlock(t)).join("")}</div>` : ""}
+    ${asHelper.length ? `<div class="bsec"><div class="label">Used as support in</div>${asHelper.slice(0, 4).map((t) => teamBlock(t)).join("")}</div>` : ""}
+
     <div class="bsec blinks"><div class="label">More details</div>
       <a href="${BUILD_INFO.sites[0].url}" target="_blank" rel="noopener">Game8 builds</a>
       <a href="${prydwenUrl(c.n)}" target="_blank" rel="noopener">Prydwen: ${esc(c.n)}</a></div>`;
@@ -2024,7 +2095,7 @@ async function init() {
     // GitHub Pages / no local server: history lives in this browser.
     document.body.classList.add("web");
     PAGES.images = ["Import", "Convene history and backup"];
-    $(".nav[data-page=images] span").textContent = "Import";
+    $$('[data-sub="images"]').forEach((b) => { b.textContent = "Import"; });
     const raw = loadRawHistory();
     if (raw.pools && Object.keys(raw.pools).length) history = analyzeHistory(raw);
     const cmd = `irm "${new URL("import.ps1", location.href).href}" | iex`;

@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/emblem.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
-<link rel="stylesheet" href="style.css?v=202611210030">
+<link rel="stylesheet" href="style.css?v=202611212010">
 </head>
 <body>
 <div class="bgimg" aria-hidden="true"></div>
@@ -26,11 +26,9 @@
     <button class="nav on" data-page="overview"><img src="assets/ic_grid.png" data-dark="assets/ic_grid_dark.png" alt=""><span>Overview</span></button>
     <button class="nav" data-page="resources"><img src="assets/ic_income.png" data-dark="assets/ic_income_dark.png" alt=""><span>Resources</span></button>
     <button class="nav" data-page="analysis"><img src="assets/ic_chart.png" data-dark="assets/ic_chart_dark.png" alt=""><span>Analysis</span></button>
-    <button class="nav" data-page="scenarios"><img src="assets/ic_layers.png" data-dark="assets/ic_layers_dark.png" alt=""><span>Scenarios</span></button>
     <button class="nav" data-page="teams"><img src="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt=""><span>Teams</span></button>
     <button class="nav" data-page="builds"><img src="assets/ic_sword.png" data-dark="assets/ic_sword_dark.png" alt=""><span>Builds</span></button>
     <button class="nav" data-page="history"><img src="assets/ic_book.png" data-dark="assets/ic_book_dark.png" alt=""><span>History</span></button>
-    <button class="nav" data-page="images"><img src="assets/ic_image.png" data-dark="assets/ic_image_dark.png" alt=""><span>Images</span></button>
     <button class="nav" data-page="settings"><img src="assets/ic_settings.png" data-dark="assets/ic_settings_dark.png" alt=""><span>Settings</span></button>
   </nav>
 
@@ -124,8 +122,8 @@
             <label class="chk"><input type="checkbox" data-k="guaranteed"><i></i>Next 5★ is guaranteed (lost the last 50/50)</label>
             <div class="note" id="pityNote"></div>
           </div>
-          <div class="panel">
-            <h2>Pull model</h2>
+          <details class="panel adv" id="advModel">
+            <summary><h2>Pull model <em>advanced</em></h2></summary>
             <div class="mgrid">
               <label class="field"><span>Base rate %</span><input type="number" min="0.01" max="100" step="0.1" data-m="base"></label>
               <label class="field"><span>Soft pity after pull</span><input type="number" min="0" max="199" data-m="soft"></label>
@@ -134,7 +132,7 @@
             </div>
             <div class="note" id="modelNote"></div>
             <button class="btn small" id="btnModelReset"><img src="assets/ic_sync.png" alt="">Default values</button>
-          </div>
+          </details>
         </div>
         <div>
           <div class="panel">
@@ -527,10 +525,10 @@
   </div>
 </div>
 
-<script src="data.js?v=202611210030"></script>
-<script src="calc.js?v=202611210030"></script>
-<script src="teams.js?v=202611210030"></script>
-<script src="builds.js?v=202611210030"></script>
-<script src="app.js?v=202611210030"></script>
+<script src="data.js?v=202611212010"></script>
+<script src="calc.js?v=202611212010"></script>
+<script src="teams.js?v=202611212010"></script>
+<script src="builds.js?v=202611212010"></script>
+<script src="app.js?v=202611212010"></script>
 </body>
 </html>
