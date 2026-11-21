@@ -1028,7 +1028,7 @@ function setTeamTab(t) {
     const img = b.querySelector("img");
     if (img) img.src = on ? img.dataset.dark : img.dataset.light;
   });
-  ["roster", "weapons", "best", "mine"].forEach((k) => $("#tt-" + k).classList.toggle("hidden", k !== t));
+  ["roster", "weapons", "meta", "best", "mine"].forEach((k) => $("#tt-" + k).classList.toggle("hidden", k !== t));
   try { localStorage.setItem("wuwaTeamTab", t); } catch (e) { /* ignore */ }
   renderTeamsPage();
 }
@@ -1036,6 +1036,7 @@ function setTeamTab(t) {
 function renderTeamsPage() {
   if (teamTab === "roster") renderRoster();
   else if (teamTab === "weapons") renderWeapons();
+  else if (teamTab === "meta") renderMetaTeams();
   else if (teamTab === "best") renderBestTeams();
   else renderMyTeams();
 }
@@ -1190,6 +1191,7 @@ function renderWeapons() {
       </button>
       <div class="wname">${esc(w.n)}</div>
       <div class="wmeta">${w.t}${sigOf.has(w.n) ? ` · <span class="sigof">${esc(sigOf.get(w.n))}</span>` : ""}</div>
+      ${(() => { const st = weaponStatText(w); return st ? `<div class="wstat" title="Level 90, refinement not counted"><span><em>ATK</em><b>${st.a}</b></span><span><em>${esc(st.name)}</em><b>${st.val}%</b></span></div>` : w.r >= 4 ? `<div class="wstat none"><span>Stats not added yet</span></div>` : ""; })()}
       <div class="rctl">${o ? `
         <div class="stp" title="Refinement"><button data-d="r-1" aria-label="Lower refinement"></button><b>R${o.r}</b><button data-d="r1" aria-label="Raise refinement"></button></div>
         <div class="stp" title="Copies"><button data-d="n-1" aria-label="Fewer copies"></button><b>×${o.n}</b><button data-d="n1" aria-label="More copies"></button></div>`
@@ -1252,11 +1254,13 @@ function renderBuilds() {
   const wTile = (n, kind, label) => {
     const w = findWeapon(n), o = owned.get(n), d = dmg(n), sc = d ? Math.max(0, Math.min(100, 100 + d.pct)) : Math.max(0, Math.min(100, weaponScore(c.n, n, 1)));
     const sig = SIGNATURE[c.n] === n, other = !sig && Object.values(SIGNATURE).includes(n);
-    return `<div class="wt ${kind}${o ? " have" : ""}" title="${esc(n)}${w ? " · " + w.r + "★ · " + (SUB[w.s] || "") : ""}">
+    const st = weaponStatText(w);
+    return `<div class="wt ${kind}${o ? " have" : ""}" title="${esc(n)}${w ? " · " + w.r + "★" + (st ? " · " + st.atk + " · " + st.sub : " · " + (SUB[w.s] || "")) : ""}">
       <span class="wtimg"><img src="${wImg(n)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${WPH}'">${o ? `<i class="wtown">R${o.r}</i>` : ""}</span>
       <span class="wtlab">${esc(label)}</span>
       <b class="wtn">${esc(n)}</b>
-      <small>${w ? "★".repeat(w.r) : ""}${w && SUB[w.s] ? " · " + SUB[w.s] : ""}${sig ? " · Signature" : other ? " · Other's signature" : ""}</small>
+      <small>${w ? "★".repeat(w.r) : ""}${sig ? " · Signature" : other ? " · Other's signature" : ""}</small>
+      ${st ? `<span class="wtst"><span><em>ATK</em> ${st.a}</span><span><em>${esc(st.name)}</em> ${st.val}%</span></span>` : w && SUB[w.s] ? `<span class="wtst"><span><em>Substat</em> ${SUB[w.s]}</span></span>` : ""}
       ${d ? `<span class="wtdmg ${d.ref ? "ref" : d.tested ? "tested" : "est"}" title="${d.ref ? "Reference weapon" : d.tested ? "Tested in game" + (d.lib != null ? ": Liberation DMG " + (d.lib > 0 ? "+" : "") + d.lib + "%" : "") : "Rough estimate from stats, passive not counted"}">${d.ref ? "100%" : (d.tested ? "" : "\u2248 ") + (d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "") + (d.tested ? Math.abs(d.pct).toFixed(1) : Math.round(Math.abs(d.pct))) + "%"}<em>${d.ref ? "reference" : d.tested ? "tested" : "est."}</em></span>` : ""}
       <span class="wtbar"><i style="width:${sc}%"></i></span>
     </div>`;
@@ -1380,6 +1384,61 @@ function teamRow(t, owned, opts = {}) {
       ${pull < 1 ? `<div class="ssub">With pull chance <b>${pct(overall)}</b></div>` : ""}
     </div>
   </div>`;
+}
+
+/* ---------------------------------------------------------------- Meta teams tab */
+const META_GROUPS = [
+  ["top", "T0 and T0.5", (t) => t === "T0" || t === "T0.5"],
+  ["t1", "T1", (t) => t === "T1" || t === "T1.5"],
+  ["low", "T2 and lower", (t) => !["T0", "T0.5", "T1", "T1.5"].includes(t)],
+  ["all", "All", () => true],
+];
+let metaGroup = "top";
+try { metaGroup = localStorage.getItem("wuwaMetaGroup") || "top"; } catch (e) { /* ignore */ }
+if (!META_GROUPS.some((g) => g[0] === metaGroup)) metaGroup = "top";
+let metaCan = false;
+
+const shortName = (n) => n.replace(/^Rover \((.*)\)$/, "Rover $1").replace(/^Yangyang: /, "");
+function metaPt(n, owned, asButton) {
+  const r = RES_BY_NAME.get(n), has = owned.has(n);
+  const tag = asButton ? "button" : "span";
+  return `<${tag} class="pt${has ? "" : " notown"}${asButton ? " link" : ""}"${asButton ? ` data-build="${esc(n)}" title="Open the build of ${esc(n)}"` : ` title="${esc(n)}${has ? "" : " (not in your roster)"}"`}>${portrait("resonators", n)}${r ? `<img class="el" src="${elIcon(r.e)}" alt="">` : ""}<small>${esc(shortName(n))}</small></${tag}>`;
+}
+function metaTeamStatus(t, owned) {
+  const missing = [];
+  t.slots.forEach((g, i) => { if (!g.some((n) => owned.has(n))) missing.push(g.slice(0, 2).join(" or ")); });
+  return missing;
+}
+function renderMetaTeams() {
+  const owned = ownedMap(false);
+  const seg = $("#metaTier");
+  seg.innerHTML = META_GROUPS.map(([k, label]) => `<button class="btn${metaGroup === k ? " on" : ""}" data-mg="${k}">${label}</button>`).join("");
+  seg.querySelectorAll("[data-mg]").forEach((b) => b.onclick = () => {
+    metaGroup = b.dataset.mg;
+    try { localStorage.setItem("wuwaMetaGroup", metaGroup); } catch (e) { /* ignore */ }
+    renderMetaTeams();
+  });
+  $("#metaCan").checked = metaCan;
+  $("#metaCan").onchange = () => { metaCan = $("#metaCan").checked; renderMetaTeams(); };
+  const inGroup = META_GROUPS.find((g) => g[0] === metaGroup)[2];
+  const all = TEAM_TEMPLATES.filter((t) => inGroup(t.tier)).map((t) => ({ t, missing: metaTeamStatus(t, owned) }));
+  const list = all.filter((x) => !metaCan || !x.missing.length);
+  const canCount = all.filter((x) => !x.missing.length).length;
+  const tiers = [...new Set(list.map((x) => x.t.tier))];
+  $("#metaSum").textContent = `${list.length} team${list.length === 1 ? "" : "s"} shown. You can build ${canCount} of ${all.length} in this group.`;
+  $("#metaList").innerHTML = list.length ? tiers.map((tier) => {
+    const rows = list.filter((x) => x.t.tier === tier).sort((a, b) => (a.missing.length > 0) - (b.missing.length > 0));
+    return `<div class="mtier"><span class="tier t${tier.replace(".", "")}">${tier}</span><i></i></div>` + rows.map(({ t, missing }) => `
+      <div class="bteam meta${missing.length ? "" : " can"}">
+        <div class="bth"><b>${esc(t.name)}</b>
+          <span class="mstat ${missing.length ? "no" : "yes"}">${missing.length ? "Needs " + esc(missing.join("; ")) : "You can build this"}</span></div>
+        <div class="btslots">${t.slots.map((g, i) => `<div class="btg"><span class="btl">${["Carry", "Second unit", "Third unit"][i]}</span><div>${g.map((n) => metaPt(n, owned, i === 0)).join("")}</div></div>`).join("")}</div>
+      </div>`).join("");
+  }).join("") : `<div class="empty">${metaCan ? "None of these teams is complete with your roster yet. Mark more resonators on the Roster tab." : "No teams in this group."}</div>`;
+  $$("#metaList [data-build]").forEach((b) => b.onclick = () => { buildSel = b.dataset.build; buildEl = "All"; showPage("builds"); });
+  $("#metaSrc").innerHTML = `Tier lists for ${esc(TEAM_SOURCES.version)}, updated ${esc(TEAM_SOURCES.updated)} (` +
+    TEAM_SOURCES.sites.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join(", ") +
+    `). Each slot lists the options, best first. Greyed resonators are not on your roster.`;
 }
 
 function renderBestTeams() {
@@ -2165,7 +2224,7 @@ async function init() {
     doSync({ url });
   };
   try { teamTab = localStorage.getItem("wuwaTeamTab") || "roster"; } catch (e) { /* ignore */ }
-  if (!["roster", "weapons", "best", "mine"].includes(teamTab)) teamTab = "roster";
+  if (!["roster", "weapons", "meta", "best", "mine"].includes(teamTab)) teamTab = "roster";
   setTeamTab(teamTab);
   let start = "overview";
   try { start = localStorage.getItem("wuwaPage") || "overview"; } catch (e) { /* ignore */ }

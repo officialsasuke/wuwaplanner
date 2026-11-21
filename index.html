@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/emblem.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
-<link rel="stylesheet" href="style.css?v=202611212357">
+<link rel="stylesheet" href="style.css?v=202611220040">
 </head>
 <body>
 <div class="bgimg" aria-hidden="true"></div>
@@ -256,6 +256,7 @@
       <div class="seg" id="teamTabs">
         <button class="btn on" data-ttab="roster"><img src="assets/ic_person_dark.png" data-light="assets/ic_person.png" data-dark="assets/ic_person_dark.png" alt="">Roster</button>
         <button class="btn" data-ttab="weapons"><img src="assets/ic_sword_dark.png" data-light="assets/ic_sword.png" data-dark="assets/ic_sword_dark.png" alt="">Weapons</button>
+        <button class="btn" data-ttab="meta"><img src="assets/ic_chart.png" data-light="assets/ic_chart.png" data-dark="assets/ic_chart_dark.png" alt="">Meta teams</button>
         <button class="btn" data-ttab="best"><img src="assets/ic_target.png" data-light="assets/ic_target.png" data-dark="assets/ic_target_dark.png" alt="">Best teams</button>
         <button class="btn" data-ttab="mine"><img src="assets/ic_team.png" data-light="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt="">My teams</button>
       </div>
@@ -300,6 +301,20 @@
           </div>
           <div class="note">Click a weapon to mark it as owned, then set the refinement (R1 to R5) and how many copies you have. Signature weapons set on the roster cards count too. Each team member gets the best of your weapons automatically: the small square on the team cards.</div>
           <div class="wgrid" id="wGrid"></div>
+        </div>
+      </div>
+
+      <!-- Meta teams -->
+      <div id="tt-meta" class="hidden">
+        <div class="panel">
+          <h2>Meta teams <em>what the tier lists say is strongest right now</em></h2>
+          <div class="rtools">
+            <div class="seg" id="metaTier"></div>
+            <div class="rtools-r"><label class="chk"><input type="checkbox" id="metaCan"><i></i>Only teams I can build</label></div>
+          </div>
+          <div class="note" id="metaSum"></div>
+          <div id="metaList"></div>
+          <div class="note" id="metaSrc"></div>
         </div>
       </div>
 
@@ -525,10 +540,10 @@
   </div>
 </div>
 
-<script src="data.js?v=202611212357"></script>
-<script src="calc.js?v=202611212357"></script>
-<script src="teams.js?v=202611212357"></script>
-<script src="builds.js?v=202611212357"></script>
-<script src="app.js?v=202611212357"></script>
+<script src="data.js?v=202611220040"></script>
+<script src="calc.js?v=202611220040"></script>
+<script src="teams.js?v=202611220040"></script>
+<script src="builds.js?v=202611220040"></script>
+<script src="app.js?v=202611220040"></script>
 </body>
 </html>

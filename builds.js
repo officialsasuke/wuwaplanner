@@ -25,7 +25,7 @@ const WEAPONS = (() => {
     Broadblade: [
       ["Ages of Harvest", 5, "crit"], ["Verdant Summit", 5, "crit"], ["Lustrous Razor", 5, "atk"], ["Thunderflare Dominion", 5, "crit"],
       ["Wildfire Mark", 5, "crit"], ["Kumokiri", 5, "crit"], ["Starfield Calibrator", 5, "er"], ["Radiance Cleaver", 5, "crit"],
-      ["Thousandfold Deliverance", 5, "crit"],
+      ["Thousandfold Deliverance", 5, "hp"],
       ["Aureate Zenith", 4, "crit"], ["Autumntrace", 4, "crit"], ["Dauntless Evernight", 4, "def"], ["Discord", 4, "er"],
       ["Helios Cleaver", 4, "atk"], ["Waning Redshift", 4, "atk"], ["Broadblade#41", 4, "er"], ["Meditations on Mercy", 4, "atk"],
       ["Beguiling Melody", 3, "atk"], ["Broadblade of Night", 3, "atk"], ["Broadblade of Voyager", 3, "er"], ["Originite: Type I", 3, "def"],
@@ -37,7 +37,7 @@ const WEAPONS = (() => {
       ["Laser Shearer", 5, "er"], ["Azure Oath", 5, "crit"], ["Frostburn", 5, "crit"], ["Glint of Clouds", 5, "crit"], ["Unspoken Rue", 5, "crit"],
       ["Sword#18", 4, "atk"], ["Somnoire Anchor", 4, "atk"], ["Overture", 4, "er"], ["Lunar Cutter", 4, "atk"], ["Lumingloss", 4, "atk"],
       ["Commando of Conviction", 4, "atk"], ["Endless Collapse", 4, "atk"], ["Fables of Wisdom", 4, "atk"], ["Feather Edge", 4, "crit"],
-      ["Sword of Voyager", 3, "er"], ["Sword of Night", 3, "atk"], ["Originite: Type II", 3, "atk"], ["Guardian Sword", 3, "hp"],
+      ["Sword of Voyager", 3, "er"], ["Sword of Night", 3, "atk"], ["Originite: Type II", 3, "hp"], ["Guardian Sword", 3, "hp"],
       ["Tyro Sword", 2, "atk"], ["Training Sword", 1, "atk"],
     ],
     Pistols: [
@@ -46,7 +46,7 @@ const WEAPONS = (() => {
       ["Lullaby", 5, "er"],
       ["Novaburst", 4, "atk"], ["Thunderbolt", 4, "atk"], ["Undying Flame", 4, "atk"], ["Cadenza", 4, "er"], ["Relativistic Jet", 4, "atk"],
       ["Pistols#26", 4, "atk"], ["Romance in Farewell", 4, "atk"], ["Solar Flame", 4, "crit"],
-      ["Pistols of Voyager", 3, "atk"], ["Pistols of Night", 3, "atk"], ["Originite: Type III", 3, "atk"], ["Guardian Pistols", 3, "atk"],
+      ["Pistols of Voyager", 3, "hp"], ["Pistols of Night", 3, "atk"], ["Originite: Type III", 3, "atk"], ["Guardian Pistols", 3, "atk"],
       ["Tyro Pistols", 2, "atk"], ["Training Pistols", 1, "atk"],
     ],
     Gauntlets: [
@@ -63,7 +63,7 @@ const WEAPONS = (() => {
       ["Blooming Jadehaven", 5, "crit"], ["Firstlight's Herald", 5, "er"], ["Freeze Frame", 5, "crit"], ["Forged Dwarf Star", 5, "crit"],
       ["Rectifier#25", 4, "er"], ["Fusion Accretion", 4, "atk"], ["Variation", 4, "er"], ["Jinzhou Keeper", 4, "atk"], ["Comet Flare", 4, "hp"],
       ["Augment", 4, "crit"], ["Call of the Abyss", 4, "er"], ["Ocean's Gift", 4, "atk"], ["Waltz in Masquerade", 4, "atk"], ["Radiant Dawn", 4, "crit"],
-      ["Rectifier of Voyager", 3, "er"], ["Rectifier of Night", 3, "atk"], ["Originite: Type V", 3, "hp"], ["Guardian Rectifier", 3, "atk"],
+      ["Rectifier of Voyager", 3, "er"], ["Rectifier of Night", 3, "atk"], ["Originite: Type V", 3, "atk"], ["Guardian Rectifier", 3, "atk"],
       ["Tyro Rectifier", 2, "atk"], ["Training Rectifier", 1, "atk"],
     ],
   };
@@ -71,6 +71,54 @@ const WEAPONS = (() => {
   for (const [t, list] of Object.entries(L)) for (const [n, r, s] of list) m.set(n, { n, t, r, s });
   return m;
 })();
+/* Lv 90 stats: name -> [base ATK, substat key, substat value].
+   Keys: cr CRIT Rate, cd CRIT DMG, atk ATK%, er Energy Regen, hp HP%, def DEF%.
+   4★: Game8 weapon lists. 5★ and 3★: Prydwen weapon list (13 Jul 2026), Frostburn: ldshop.gg, Glint of Clouds: allthings.how,
+   Thousandfold Deliverance: allthings.how (beta leak, can differ slightly). Weapons that are not listed here have no number yet. */
+const WEAPON_STAT_NAMES = { cr: "CRIT Rate", cd: "CRIT DMG", atk: "ATK%", er: "Energy Regen", hp: "HP%", def: "DEF%" };
+const WEAPON_STATS = {
+  // 5★
+  "Lustrous Razor": [587, "atk", 36.4], "Abyss Surges": [587, "atk", 36.4], "Cosmic Ripples": [500, "atk", 54], "Stringmaster": [500, "cr", 36],
+  "Verdant Summit": [587, "cd", 48.6], "Emerald of Genesis": [587, "cr", 24.3], "Static Mist": [587, "cr", 24.3], "Ages of Harvest": [587, "cr", 24.3],
+  "Blazing Brilliance": [587, "cd", 48.6], "Rime-Draped Sprouts": [500, "cd", 72], "Verity's Handle": [587, "cr", 24.3], "Stellar Symphony": [412, "er", 77],
+  "Red Spring": [587, "cr", 24.3], "The Last Dance": [500, "cd", 72], "Tragicomedy": [587, "cr", 24.3], "Luminous Hymn": [500, "cr", 36],
+  "Unflickering Valor": [415, "er", 77], "Bloodpact's Pledge": [587, "er", 38.9], "Whispers of Sirens": [500, "cd", 72], "Blazing Justice": [587, "cd", 48.6],
+  "Woodland Aria": [500, "cr", 36], "Defier's Thorn": [413, "hp", 72.2], "Wildfire Mark": [587, "cd", 48.6], "Lethean Elegy": [588, "cr", 24.3],
+  "Thunderflare Dominion": [675, "cr", 12.1], "Moongazer's Sigil": [500, "cr", 36], "Lux & Umbra": [587, "cd", 48.6], "Emerald Sentence": [587, "cr", 24.3],
+  "Kumokiri": [500, "cr", 36], "Boson Astrolabe": [525, "er", 38.8], "Radiance Cleaver": [587, "cd", 48.6], "Laser Shearer": [587, "er", 38.8],
+  "Phasic Homogenizer": [587, "cd", 48.6], "Pulsation Bracer": [587, "cr", 24.3], "Spectrum Blaster": [587, "cr", 24.3], "Starfield Calibrator": [414, "er", 77],
+  "Everbright Polestar": [588, "cr", 24.3], "Daybreaker's Spine": [588, "cr", 24.3], "Frostburn": [588, "cr", 24.3], "Glint of Clouds": [500, "cr", 36],
+  "Thousandfold Deliverance": [413, "hp", 72.2],
+  // 4★
+  "Waning Redshift": [462, "atk", 18.2], "Aureate Zenith": [412, "cd", 40.5], "Broadblade#41": [412, "er", 32.3], "Meditations on Mercy": [462, "atk", 18.2],
+  "Autumntrace": [412, "cr", 20.3], "Dauntless Evernight": [337, "def", 61.6], "Discord": [337, "er", 51.8], "Helios Cleaver": [412, "atk", 30.4],
+  "Legend of Drunken Hero": [462, "atk", 18.2], "Gauntlets#21D": [387, "er", 38.9], "Celestial Spiral": [462, "atk", 18.2], "Amity Accord": [337, "def", 61.6],
+  "Hollow Mirage": [412, "atk", 30.4], "Marcato": [337, "er", 51.8], "Stonard": [412, "cr", 20.3], "Aether Strike": [412, "cd", 40.5],
+  "Cadenza": [337, "er", 51.8], "Novaburst": [412, "atk", 30.4], "Thunderbolt": [387, "atk", 36.4], "Undying Flame": [412, "atk", 30.4],
+  "Romance in Farewell": [462, "atk", 18.2], "Solar Flame": [412, "cr", 20.2], "Pistols#26": [387, "atk", 36.4], "Relativistic Jet": [462, "atk", 18.2],
+  "Ocean's Gift": [462, "atk", 18.2], "Fusion Accretion": [462, "atk", 18.2], "Call of the Abyss": [337, "er", 51.8], "Waltz in Masquerade": [462, "atk", 18.2],
+  "Rectifier#25": [337, "er", 51.8], "Augment": [412, "cr", 20.3], "Comet Flare": [412, "hp", 30.4], "Jinzhou Keeper": [387, "atk", 36.4],
+  "Variation": [337, "er", 51.8], "Radiant Dawn": [412, "cd", 40.5], "Feather Edge": [412, "cr", 20.2], "Sword#18": [387, "atk", 36.4],
+  "Fables of Wisdom": [462, "atk", 18.2], "Somnoire Anchor": [462, "atk", 18.2], "Endless Collapse": [462, "atk", 18.2], "Overture": [337, "er", 51.8],
+  "Commando of Conviction": [412, "atk", 30.4], "Lumingloss": [387, "atk", 36.4], "Lunar Cutter": [412, "atk", 30.4],
+  // 3★
+  "Gauntlets of Voyager": [325, "def", 30.7], "Originite: Type I": [300, "def", 38.4], "Guardian Gauntlets": [300, "def", 38.4],
+  "Broadblade of Night": [325, "atk", 24.3], "Sword of Night": [325, "atk", 24.3], "Pistols of Night": [325, "atk", 24.3], "Gauntlets of Night": [325, "atk", 24.3],
+  "Rectifier of Night": [325, "atk", 24.3], "Pistols of Voyager": [300, "hp", 30.3], "Originite: Type II": [325, "hp", 24.3], "Originite: Type III": [325, "atk", 24.3],
+  "Guardian Rectifier": [325, "atk", 24.3], "Guardian Pistols": [325, "atk", 24.3], "Guardian Broadblade": [325, "atk", 24.3], "Originite: Type V": [300, "atk", 30.3],
+  "Guardian Sword": [300, "hp", 30.3], "Broadblade of Voyager": [300, "er", 32.3], "Sword of Voyager": [300, "er", 32.3], "Rectifier of Voyager": [300, "er", 32.3],
+  "Originite: Type IV": [300, "cd", 40.5], "Beguiling Melody": [300, "atk", 30.4],
+};
+for (const [n, [a, k, v]] of Object.entries(WEAPON_STATS)) {
+  const w = WEAPONS.get(n);
+  if (w) { w.a = a; w.sk = k; w.sv = v; }
+}
+/* "ATK 587" and "CRIT Rate 24.3%" for a weapon, or null while there is no number for it */
+function weaponStatText(w) {
+  if (!w || w.a == null) return null;
+  return { atk: `ATK ${w.a}`, sub: `${WEAPON_STAT_NAMES[w.sk]} ${w.sv}%`, a: w.a, name: WEAPON_STAT_NAMES[w.sk], val: w.sv };
+}
+
 const WEAPON_BY_KEY = new Map([...WEAPONS.values()].map((w) => [String(w.n).toLowerCase().replace(/[^a-z0-9]/g, ""), w]));
 function findWeapon(name) {
   return WEAPONS.get(name) || WEAPON_BY_KEY.get(String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "")) || null;
@@ -217,7 +265,7 @@ const DMG_TESTS = {
 };
 const DMG_MODEL = {
   charAtk: 450, atkBonus: 0.5, flat: 300, baseCr: 0.65, baseCd: 2.0,   // a typical built carry
-  bisPremium: 0.15,   // the best weapon usually carries a passive worth about this much (calibrated on the Qingxiao test)
+  bisPremium: 0.17,   // the best weapon usually carries a passive worth about this much (calibrated on the Qingxiao test with the real weapon stats)
   // Lv 90 stats by rarity: base ATK, substat values (CRIT Rate / ATK%), passive worth in ATK% (a typical "+ATK%" passive)
   tier: { 5: { atk: 587, crit: 0.243, atkp: 0.364, pas: 0.12 }, 4: { atk: 412, crit: 0.2025, atkp: 0.3038, pas: 0.08 },
           3: { atk: 337, crit: 0.162, atkp: 0.243, pas: 0.04 } },
@@ -225,9 +273,14 @@ const DMG_MODEL = {
 };
 function weaponDmgIndex(w) {
   const m = DMG_MODEL, t = m.tier[w.r] || m.tier[3];
-  const atkp = m.atkBonus + t.pas + (w.s === "atk" ? t.atkp : 0) + (w.s === "er" ? m.erValue : 0);
-  const cr = Math.min(1, m.baseCr + (w.s === "crit" ? t.crit : 0));
-  return ((m.charAtk + t.atk) * (1 + atkp) + m.flat) * (1 + cr * (m.baseCd - 1));
+  // real Lv 90 numbers when the weapon has them, otherwise the typical values of its rarity
+  const real = w.a != null;
+  const atk = real ? w.a : t.atk;
+  const atkp = m.atkBonus + t.pas + (real ? (w.sk === "atk" ? w.sv / 100 : 0) + (w.sk === "er" ? m.erValue : 0)
+    : (w.s === "atk" ? t.atkp : 0) + (w.s === "er" ? m.erValue : 0));
+  const cr = Math.min(1, m.baseCr + (real ? (w.sk === "cr" ? w.sv / 100 : 0) : (w.s === "crit" ? t.crit : 0)));
+  const cd = m.baseCd + (real && w.sk === "cd" ? w.sv / 100 : 0);
+  return ((m.charAtk + atk) * (1 + atkp) + m.flat) * (1 + cr * (cd - 1));
 }
 /* Difference to the best weapon in percent. Returns { pct, tested, lib } or null when it cannot be told. */
 function weaponDmgPct(charName, bestName, name) {
