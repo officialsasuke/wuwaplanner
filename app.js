@@ -45,7 +45,7 @@ const PAGES = {
   analysis: ["Analysis", "Daily goal and chances"],
   scenarios: ["Scenarios", "What if"],
   teams: ["Teams", "Roster and team builder"],
-  builds: ["Builds", "Weapons, echoes and stats"],
+  builds: ["Characters", "Builds, weapons, echoes and teams"],
   history: ["History", "Convene Record"],
   images: ["Images", "Your images and import"],
   settings: ["Settings", "Performance and display"],
@@ -544,6 +544,7 @@ function endLabel(end) {
 
 function renderOverview(ev, r, cp, wp, g) {
   renderGoals(ev);
+  renderCountdown();
 
   const has = ev.N + ev.M > 0;
   $("#oChance").textContent = has ? pct(ev.prob) : "–";
@@ -1066,12 +1067,13 @@ function renderRoster() {
   seg.querySelectorAll("[data-el]").forEach((b) => b.onclick = () => { rosterEl = b.dataset.el; renderRoster(); });
 
   const q = normKey($("#rosterSearch").value);
-  const only = $("#ownedOnly").checked;
+  const only = $("#ownedOnly").checked, favOnly = $("#favOnly").checked;
   const list = RESONATORS
     .filter((c) => rosterEl === "All" || c.e === rosterEl)
     .filter((c) => !q || normKey(c.n).includes(q))
     .filter((c) => !only || roster[c.n])
-    .sort((a, b) => (!!a.soon - !!b.soon) || (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || ELEMENTS.indexOf(a.e) - ELEMENTS.indexOf(b.e) || a.n.localeCompare(b.n));
+    .filter((c) => !favOnly || isFav("r", c.n))
+    .sort((a, b) => (!!a.soon - !!b.soon) || (isFav("r", b.n) - isFav("r", a.n)) || (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || ELEMENTS.indexOf(a.e) - ELEMENTS.indexOf(b.e) || a.n.localeCompare(b.n));
   const ow = ownedWeapons();
   $("#rosterGrid").innerHTML = list.length ? list.map((c) => {
     const x0 = roster[c.n], x = x0 && { ...x0, w: sigRank(c.n, x0.w, ow) };
@@ -1083,6 +1085,7 @@ function renderRoster() {
         <span class="own"></span>
         <span class="rname">${esc(c.n)}</span>
       </button>
+      ${favBtn("r", c.n)}${c.soon || !CHAR_BUILDS.has(c.n) ? "" : `<button class="rcopen" data-open="${esc(c.n)}" title="Open the character page" aria-label="Open the character page"></button>`}
       <div class="rctl">${x ? `
         <div class="stp" title="Sequence"><button data-d="s-1" aria-label="Lower sequence"></button><b>${seqTxt(x)}</b><button data-d="s1" aria-label="Raise sequence"></button></div>
         <div class="stp" title="Signature weapon (none or R1 to R5)"><button data-d="w-1" aria-label="Lower refinement"></button><b class="${x.w > 0 ? "" : "dim"}">${x.w > 0 ? "R" + x.w : "None"}</b><button data-d="w1" aria-label="Raise refinement"></button></div>`
@@ -1180,7 +1183,7 @@ function renderWeapons() {
     .filter((w) => !q || normKey(w.n).includes(q) || normKey(sigOf.get(w.n) || "").includes(q))
     .filter((w) => !only || owned.has(w.n))
     .filter((w) => low || w.r >= 4 || owned.has(w.n))
-    .sort((a, b) => (owned.has(b.n) - owned.has(a.n)) || (b.r - a.r) || WEAPON_TYPES.indexOf(a.t) - WEAPON_TYPES.indexOf(b.t) || a.n.localeCompare(b.n));
+    .sort((a, b) => (isFav("w", b.n) - isFav("w", a.n)) || (owned.has(b.n) - owned.has(a.n)) || (b.r - a.r) || WEAPON_TYPES.indexOf(a.t) - WEAPON_TYPES.indexOf(b.t) || a.n.localeCompare(b.n));
   $("#wGrid").innerHTML = list.length ? list.map((w) => {
     const o = owned.get(w.n), fromRoster = o && !inv[w.n];
     return `<div class="wc r${w.r}${o ? " owned" : ""}" data-w="${esc(w.n)}">
@@ -1189,6 +1192,7 @@ function renderWeapons() {
         <span class="wstars">${"★".repeat(w.r)}</span>
         <span class="own"></span>
       </button>
+      ${favBtn("w", w.n)}
       <div class="wname">${esc(w.n)}</div>
       <div class="wmeta">${w.t}${sigOf.has(w.n) ? ` · <span class="sigof">${esc(sigOf.get(w.n))}</span>` : ""}</div>
       ${(() => { const st = weaponStatText(w); return st ? `<div class="wstat" title="Level 90, refinement not counted"><span><em>ATK</em><b>${st.a}</b></span><span><em>${esc(st.name)}</em><b>${st.val}%</b></span></div>` : w.r >= 4 ? `<div class="wstat none"><span>Stats not added yet</span></div>` : ""; })()}
@@ -1225,6 +1229,58 @@ function prydwenUrl(n) {
   const slug = n === "Shorekeeper" ? "the-shorekeeper" : n.toLowerCase().replace(/[():]/g, "").trim().replace(/\s+/g, "-");
   return `https://www.prydwen.gg/wuthering-waves/characters/${slug}`;
 }
+/* ---------------------------------------------------------------- Favorites */
+const isFav = (kind, n) => !!(plan.fav && plan.fav[kind] && plan.fav[kind][n]);
+function toggleFav(kind, n) {
+  if (!plan.fav) plan.fav = { r: {}, w: {} };
+  if (!plan.fav[kind]) plan.fav[kind] = {};
+  if (plan.fav[kind][n]) delete plan.fav[kind][n]; else plan.fav[kind][n] = 1;
+  save();
+}
+const favBtn = (kind, n, cls = "") => `<button class="fav${cls ? " " + cls : ""}${isFav(kind, n) ? " on" : ""}" data-fav="${kind}" data-n="${esc(n)}" title="${isFav(kind, n) ? "Remove from favorites" : "Add to favorites"}" aria-label="Favorite" aria-pressed="${isFav(kind, n)}">★</button>`;
+
+/* ---------------------------------------------------------------- Echo check (character page) */
+let echoSt = { cost: 4, main: "", dmg: "any", subs: [0, 1, 2, 3, 4].map(() => ({ k: "", v: "" })), open: false };
+function echoPanelHtml(c) {
+  return `<details class="bsec echochk" id="echoChk"${echoSt.open ? " open" : ""}>
+    <summary><span class="label">Echo check <em>rate an echo for ${esc(c.n)}</em></span></summary>
+    <div class="echoform" id="echoForm"></div></details>`;
+}
+function renderEcho(c) {
+  const box = $("#echoForm");
+  if (!box) return;
+  const st = echoSt;
+  if (!ECHO_MAINS[st.cost].includes(st.main)) st.main = "";
+  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(t)}</option>`;
+  const rec = CHAR_BUILDS.get(c.n).ms[{ 4: 0, 3: 1, 1: 2 }[st.cost]];
+  const subRows = st.subs.map((s, i) => `<div class="esub">
+      <select data-ek="${i}" aria-label="Substat ${i + 1}">${opt("", "Substat " + (i + 1), !s.k)}${ECHO_SUBS.map((x) => opt(x.k, x.n, s.k === x.k)).join("")}</select>
+      <select data-ev="${i}" aria-label="Roll ${i + 1}"${s.k ? "" : " disabled"}>${opt("", "Value", !s.v)}${s.k ? ECHO_ROLLS[s.k].map((v) => opt(v, v + ECHO_SUBS.find((x) => x.k === s.k).u, +s.v === v)).join("") : ""}</select>
+    </div>`).join("");
+  const r = echoRate(c.n, st);
+  const useTag = (w) => (w >= 0.5 ? ["good", "Useful"] : w >= 0.15 ? ["mid", "Minor"] : ["bad", "Wasted"]);
+  box.innerHTML = `
+    <div class="erow"><span class="bk">Cost</span><div class="seg">${[4, 3, 1].map((k) => `<button class="btn${st.cost === k ? " on" : ""}" data-ecost="${k}">${k}-cost</button>`).join("")}</div></div>
+    <div class="erow"><span class="bk">Main stat</span><select id="ecMain">${opt("", "Choose", !st.main)}${ECHO_MAINS[st.cost].map((m) => opt(m, m, st.main === m)).join("")}</select>
+      <span class="ehint">Recommended: ${esc(rec || "–")}</span></div>
+    ${c.role === "heal" ? "" : `<div class="erow"><span class="bk">Main damage</span><select id="ecDmg">${ECHO_DMG_TYPES.map(([k, t]) => opt(k, t, st.dmg === k)).join("")}</select>
+      <span class="ehint">Which attack does most of ${esc(c.n)}'s damage</span></div>`}
+    <div class="esubs">${subRows}</div>
+    <div class="eresult">${r.n ? `
+      <div class="eres g${r.grade}"><div class="egrade">${r.grade}</div><div class="escore"><b>${r.score}%</b><span>${esc(r.text)}</span></div></div>
+      ${r.rows.map((x) => { const [cl, tx] = useTag(x.w); return `<div class="erw"><span>${esc(x.label)}</span><i class="ebar ${cl}"><b style="width:${Math.round(x.q * 100)}%"></b></i><em>${x.v}${x.unit}</em><span class="etag ${cl}">${tx}</span></div>`; }).join("")}
+      ${r.cv != null ? `<div class="enote">Crit Value (2 × CRIT Rate + CRIT DMG): <b>${r.cv.toFixed(1)}</b></div>` : ""}
+      ${r.mainOk === true ? `<div class="enote good">The main stat fits ${esc(c.n)}.</div>` : r.mainOk === false ? `<div class="enote bad">${esc(st.main)} is not a recommended ${st.cost}-cost main stat for ${esc(c.n)}. Recommended: ${esc(r.mainRec)}.</div>` : ""}
+      ${r.dup ? `<div class="enote bad">A substat can only appear once on an echo. The repeated row was ignored.</div>` : ""}` : `<div class="enote">Pick the substats of the echo to see its score.</div>`}
+      <div class="enote dim">The score compares your rolls with perfect rolls on the stats ${esc(c.n)} wants. It is a rule of thumb, not an official formula. With fewer than five substats it compares with the same number of perfect rolls.</div>
+    </div>`;
+  box.querySelectorAll("[data-ecost]").forEach((b) => b.onclick = () => { st.cost = +b.dataset.ecost; renderEcho(c); });
+  const m = $("#ecMain"); if (m) m.onchange = () => { st.main = m.value; renderEcho(c); };
+  const d = $("#ecDmg"); if (d) d.onchange = () => { st.dmg = d.value; renderEcho(c); };
+  box.querySelectorAll("[data-ek]").forEach((x) => x.onchange = () => { const s = st.subs[+x.dataset.ek]; s.k = x.value; s.v = ""; renderEcho(c); });
+  box.querySelectorAll("[data-ev]").forEach((x) => x.onchange = () => { st.subs[+x.dataset.ev].v = x.value; renderEcho(c); });
+}
+
 function renderBuilds() {
   const seg = $("#bElSeg");
   seg.innerHTML = elSegHtml(buildEl);
@@ -1234,11 +1290,11 @@ function renderBuilds() {
   const list = RESONATORS.filter((c) => CHAR_BUILDS.has(c.n))
     .filter((c) => buildEl === "All" || c.e === buildEl)
     .filter((c) => !q || normKey(c.n).includes(q))
-    .sort((a, b) => (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || a.n.localeCompare(b.n));
+    .sort((a, b) => (isFav("r", b.n) - isFav("r", a.n)) || (!!roster[b.n] - !!roster[a.n]) || (b.r - a.r) || a.n.localeCompare(b.n));
   if (!buildSel || !CHAR_BUILDS.has(buildSel)) buildSel = (list[0] || RESONATORS[0]).n;
   $("#bList").innerHTML = list.map((c) => `<button class="pk${roster[c.n] ? "" : " notown"}${c.n === buildSel ? " sel" : ""}" data-b="${esc(c.n)}" style="--el:${EL_COLOR[c.e]}">
       <span class="tmimg">${portrait("resonators", c.n)}<img class="el" src="${elIcon(c.e)}" alt=""></span>
-      <span class="tmn">${esc(c.n)}</span></button>`).join("") || `<div class="empty">No resonator matches.</div>`;
+      ${isFav("r", c.n) ? `<i class="favmark" title="Favorite">\u2605</i>` : ""}<span class="tmn">${esc(c.n)}</span></button>`).join("") || `<div class="empty">No resonator matches.</div>`;
   $$("#bList [data-b]").forEach((b) => b.onclick = () => { buildSel = b.dataset.b; renderBuilds(); if (innerWidth < 900) $("#bDetail").scrollIntoView({ behavior: "smooth" }); });
 
   const c = RES_BY_NAME.get(buildSel), b = CHAR_BUILDS.get(buildSel);
@@ -1305,15 +1361,29 @@ function renderBuilds() {
   const teamBlock = (t, carry) => `<div class="bteam"><div class="bth"><span class="tier t${t.tier.replace(".", "")}">${t.tier}</span><b>${esc(t.name)}</b></div>
       <div class="btslots">${t.slots.map((g, i) => `<div class="btg"><span class="btl">${["Carry", "Sub-DPS / support", "Support / healer"][i]}</span><div>${g.map((n) => pt(n)).join("")}</div></div>`).join("")}</div></div>`;
 
+  /* quick facts: meta tier, banner, target */
+  const todayIso = isoOf(serverToday());
+  const bnr = BANNERS.filter((x) => x.resonators.includes(c.n) && x.end > todayIso).sort((x, y) => (x.start < y.start ? -1 : 1))[0];
+  const inTargets = (plan.goals || []).some((g) => g.type === "char" && g.name === c.n);
+  const bestTier = (list) => list.length ? list[0].tier : null;
+  const tCarry = bestTier(asCarry), tHelp = bestTier(asHelper);
+  const facts = [
+    tCarry ? `<span class="fact"><em>Meta</em> ${tCarry} carry</span>` : tHelp ? `<span class="fact"><em>Meta</em> ${tHelp} support</span>` : `<span class="fact"><em>Meta</em> not in the tier list</span>`,
+    c.soon ? `<span class="fact"><em>Banner</em> not released yet</span>`
+      : bnr ? `<span class="fact on"><em>Banner</em> ${bnr.start <= todayIso ? "now" : "from " + fmtShort(bnr.start)}: ${esc(bnr.label)}, until ${fmtShort(bnr.end)}</span>` : `<span class="fact"><em>Banner</em> none in the calendar</span>`,
+    myRes || c.soon ? "" : inTargets ? `<span class="fact on"><em>Target</em> on your list</span>` : `<button class="link" id="bAddTarget">Add as pull target</button>`,
+  ].filter(Boolean).join("");
+
   $("#bDetail").innerHTML = `
     <div class="bhead" style="--el:${EL_COLOR[c.e]}">
       <span class="tmimg big">${portrait("resonators", c.n)}<img class="el" src="${elIcon(c.e)}" alt=""></span>
       <div>
-        <h2 class="bname">${esc(c.n)}</h2>
+        <h2 class="bname">${esc(c.n)}${favBtn("r", c.n, "inline")}</h2>
         <div class="bchips"><span class="chip"><img src="${elIcon(c.e)}" alt="">${c.e}</span><span class="chip">${"★".repeat(c.r)}</span><span class="chip">${b.wt}</span><span class="chip">${ROLE_LABEL[c.role]}</span></div>
         <div class="bmine">${myRes ? `You own ${esc(c.n)}: S${myRes.s}${myRes.w > 0 ? ", signature R" + myRes.w : ", no signature weapon"}.` : `You do not own ${esc(c.n)} yet.`}
           ${mine ? `Best fitting weapon in your list: <b>${esc(mine.n)}</b> R${mine.o.r}.` : `No ${b.wt.toLowerCase()} in your weapon list yet.`}
           <button class="link" id="bToWeapons">Edit weapons</button></div>
+        <div class="bfacts">${facts}</div>
       </div>
     </div>
 
@@ -1334,6 +1404,7 @@ function renderBuilds() {
       <div class="brow"><span class="bk">4-cost</span><div>${statChips(b.ms[0])}</div></div>
       <div class="brow"><span class="bk">3-cost</span><div>${statChips(b.ms[1])}</div></div>
       <div class="brow"><span class="bk">1-cost</span><div>${statChips(b.ms[2])}</div></div></div>
+    ${echoPanelHtml(c)}
 
     ${asCarry.length ? `<div class="bsec"><div class="label">Best teams <em>${esc(c.n)} as the carry</em></div>${asCarry.slice(0, 4).map((t) => teamBlock(t)).join("")}</div>` : ""}
     ${asHelper.length ? `<div class="bsec"><div class="label">Used as support in</div>${asHelper.slice(0, 4).map((t) => teamBlock(t)).join("")}</div>` : ""}
@@ -1342,6 +1413,10 @@ function renderBuilds() {
       <a href="${BUILD_INFO.sites[0].url}" target="_blank" rel="noopener">Game8 builds</a>
       <a href="${prydwenUrl(c.n)}" target="_blank" rel="noopener">Prydwen: ${esc(c.n)}</a></div>`;
   $("#bToWeapons").onclick = () => { showPage("teams"); setTeamTab("weapons"); };
+  const at = $("#bAddTarget");
+  if (at) at.onclick = () => { plan.goals.push({ type: "char", name: c.n }); save(); scheduleCalc(); renderBuilds(); };
+  renderEcho(c);
+  $("#echoChk").addEventListener("toggle", () => { echoSt.open = $("#echoChk").open; });
   $("#bSrc").innerHTML = `Build data from ${BUILD_INFO.sites.map((x) => `<a href="${x.url}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join(" and ")}, version ${BUILD_INFO.version} (${BUILD_INFO.updated}). Community recommendations, not official.`;
 }
 
@@ -1966,6 +2041,7 @@ function bindInputs() {
   $("#bSearch").oninput = renderBuilds;
   $("#rosterSearch").addEventListener("input", renderRoster);
   $("#ownedOnly").addEventListener("change", renderRoster);
+  $("#favOnly").addEventListener("change", renderRoster);
   $("#btnRosterImport").onclick = importRosterFromHistory;
   $("#usePlanned").addEventListener("change", (e) => { plan.usePlanned = e.target.checked; save(); renderBestTeams(); });
   $("#btnMoreTeams").onclick = () => { autoShown += 8; renderBestTeams(); };
@@ -2045,6 +2121,12 @@ function migrate(p) {
     if (c) clean[c.n] = { s: Math.max(0, Math.min(6, v.s | 0)), w: Math.max(0, Math.min(5, v.w | 0)) };
   }
   out.roster = clean;
+  const fv = { r: {}, w: {} };
+  if (out.fav && typeof out.fav === "object") {
+    for (const n of Object.keys(out.fav.r || {})) { const c = findResonator(n); if (c) fv.r[c.n] = 1; }
+    for (const n of Object.keys(out.fav.w || {})) { const w = findWeapon(n); if (w) fv.w[w.n] = 1; }
+  }
+  out.fav = fv;
   if (!Array.isArray(out.myTeams)) out.myTeams = [];
   out.myTeams = out.myTeams.map((t) => ({ name: String(t.name || ""), members: [0, 1, 2].map((i) => { const c = findResonator((t.members || [])[i]); return c ? c.n : null; }) }));
   if (!BUILDS.some((b) => b.k === out.teamBuild)) out.teamBuild = "solid";
@@ -2554,3 +2636,99 @@ init();
   if (sel) { sel.value = v; sel.addEventListener("change", () => { v = sel.value; try { localStorage.setItem("wuwaUiAnim", v); } catch (e) { /* ignore */ } apply(); }); }
   apply();
 })();
+
+
+/* ---------------------------------------------------------------- Countdown (Overview) */
+function fmtLeft(ms) {
+  if (ms <= 0) return "now";
+  const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  return d > 0 ? `${d} d ${h} h` : h > 0 ? `${h} h ${m} min` : `${m} min`;
+}
+/* A phase changes around the daily reset of the chosen server on its start/end date (approximate). */
+function phaseMs(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Date.UTC(y, m - 1, d) + (RESET_HOUR - serverOf(plan).utc) * 3600000;
+}
+function renderCountdown() {
+  const box = $("#cdStrip");
+  if (!box) return;
+  const now = Date.now();
+  const cur = BANNERS.find((b) => phaseMs(b.start) <= now && now < phaseMs(b.end));
+  const next = BANNERS.filter((b) => phaseMs(b.start) > now).sort((a, b) => (a.start < b.start ? -1 : 1))[0];
+  const names = (b) => b.resonators.map(shortName).join(", ");
+  const sv = serverOf(plan);
+  const toReset = 86400000 - ((now + sv.utc * 3600000 - RESET_HOUR * 3600000) % 86400000 + 86400000) % 86400000;
+  const card = (k, v, sub, cls = "") => `<div class="cd${cls}"><span class="cdk">${k}</span><b class="cdv">${v}</b><span class="cds">${sub}</span></div>`;
+  box.innerHTML =
+    (cur ? card("Current banner ends in", fmtLeft(phaseMs(cur.end) - now), `${esc(cur.label)} · ${esc(names(cur))}`)
+      : card("Current banner", "–", "No running phase in the calendar")) +
+    (next ? card("Next banner starts in", fmtLeft(phaseMs(next.start) - now), `${esc(next.label)} · ${esc(names(next))}`)
+      : card("Next banner", "–", "Not announced in the calendar yet")) +
+    card("Daily reset in", fmtLeft(toReset), `${esc(sv.label)} server, 04:00`) ;
+}
+setInterval(() => { if (page === "overview" && !document.hidden) renderCountdown(); }, 30000);
+
+/* ---------------------------------------------------------------- Backup (Settings) */
+(function backup() {
+  const msg = $("#bkMsg"), ex = $("#bkExport"), fi = $("#bkFile"), act = $("#bkAct");
+  if (!ex || !fi) return;
+  let pending = null;
+  const say = (t, cls = "") => { msg.className = "note " + cls; msg.innerHTML = t; };
+  ex.onclick = () => {
+    const data = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (/^wuwa[A-Za-z]*$/.test(k) && k !== "wuwaConveneUrl" && k !== "wuwaBgTier") data[k] = localStorage.getItem(k);
+    }
+    data.wuwaPlan = JSON.stringify(plan);
+    const file = { app: "wuwa-planner", version: 1, exported: new Date().toISOString(), data };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: "application/json" }));
+    a.download = `wuwa-planner-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    say(`Backup saved to your downloads (${Object.keys(data).length} items). The saved Convene link is not included.`, "good");
+  };
+  fi.onchange = async () => {
+    const f = fi.files && fi.files[0];
+    fi.value = "";
+    if (!f) return;
+    pending = null; act.innerHTML = "";
+    let obj;
+    try { obj = JSON.parse(await f.text()); } catch (e) { return say("This file is not a valid backup.", "bad"); }
+    if (!obj || obj.app !== "wuwa-planner" || !obj.data || typeof obj.data !== "object") return say("This file is not a backup from this planner.", "bad");
+    const keys = Object.keys(obj.data).filter((k) => /^wuwa[A-Za-z]*$/.test(k) && k !== "wuwaConveneUrl" && k !== "wuwaBgTier" && typeof obj.data[k] === "string");
+    if (!keys.length) return say("The backup is empty.", "bad");
+    if (obj.data.wuwaPlan) { try { JSON.parse(obj.data.wuwaPlan); } catch (e) { return say("The plan inside this backup is damaged.", "bad"); } }
+    pending = { obj, keys };
+    const when = obj.exported ? new Date(obj.exported).toLocaleString("en-GB") : "unknown date";
+    say(`Backup from <b>${esc(when)}</b> with ${keys.length} items. Restoring replaces your current roster, targets, resources and settings.`);
+    act.innerHTML = `<button class="btn on" id="bkGo">Restore now</button><button class="btn" id="bkNo">Cancel</button>`;
+    $("#bkNo").onclick = () => { pending = null; act.innerHTML = ""; say(""); };
+    $("#bkGo").onclick = async () => {
+      if (!pending) return;
+      pending.keys.forEach((k) => { try { localStorage.setItem(k, pending.obj.data[k]); } catch (e) { /* ignore */ } });
+      if (online && pending.obj.data.wuwaPlan) {
+        try { await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan: JSON.parse(pending.obj.data.wuwaPlan) }) }); } catch (e) { /* ignore */ }
+      }
+      location.reload();
+    };
+  };
+})();
+
+/* ---------------------------------------------------------------- Favorites and "open character" clicks */
+document.addEventListener("click", (e) => {
+  const f = e.target.closest("[data-fav]");
+  if (f) {
+    e.preventDefault(); e.stopPropagation();
+    toggleFav(f.dataset.fav, f.dataset.n);
+    if (page === "teams") renderTeamsPage(); else if (page === "builds") renderBuilds();
+    return;
+  }
+  const o = e.target.closest("[data-open]");
+  if (o) {
+    e.preventDefault(); e.stopPropagation();
+    buildSel = o.dataset.open; buildEl = "All";
+    showPage("builds");
+  }
+}, true);

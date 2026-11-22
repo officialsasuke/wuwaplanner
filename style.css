@@ -732,3 +732,70 @@ details.adv[open] > summary { margin-bottom: 12px; }
 .mstat.no { color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: .02em; }
 button.pt { padding: 0; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
 button.pt.link:hover .art { outline: 2px solid var(--gold-l); outline-offset: -2px; }
+
+/* ================= Favorites ================= */
+.fav { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid rgba(242, 239, 230, .22); border-radius: 50%;
+  background: rgba(12, 12, 16, .78); color: rgba(242, 239, 230, .5); font-size: 13px; line-height: 1; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.fav:hover { color: var(--gold-l); border-color: var(--gold); }
+.fav.on { color: var(--gold); border-color: var(--gold); background: rgba(240, 200, 110, .16); }
+.rc, .wc { position: relative; }
+.rc > .fav, .wc > .fav { position: absolute; top: 6px; left: 6px; z-index: 4; }
+.wc > .fav { left: auto; right: 6px; top: 34px; }
+.rcopen { position: absolute; top: 6px; left: 34px; z-index: 4; width: 24px; height: 24px; padding: 0; border: 1px solid rgba(242, 239, 230, .22); border-radius: 50%;
+  background: rgba(12, 12, 16, .78) url("assets/ic_book.png") center / 13px no-repeat; cursor: pointer; opacity: .8; }
+.rcopen:hover { border-color: var(--gold); opacity: 1; }
+.fav.inline { width: 26px; height: 26px; margin-left: 10px; vertical-align: middle; font-size: 14px; }
+.pk { position: relative; }
+.favmark { position: absolute; top: 4px; left: 4px; z-index: 3; font-style: normal; font-size: 12px; color: var(--gold); text-shadow: 0 0 4px rgba(0, 0, 0, .9); }
+
+/* ================= Character page extras ================= */
+.bfacts { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 10px; align-items: center; }
+.fact { display: inline-flex; gap: 6px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--text); }
+.fact em { font-style: normal; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; font-size: 10.5px; align-self: center; }
+.fact.on { border-color: rgba(240, 200, 110, .55); color: var(--gold-l); }
+
+.echochk > summary { cursor: pointer; list-style: none; }
+.echochk > summary::-webkit-details-marker { display: none; }
+.echochk > summary .label::before { content: "\25B8"; display: inline-block; margin-right: 8px; color: var(--gold); transition: transform .15s; }
+.echochk[open] > summary .label::before { transform: rotate(90deg); }
+.echoform { display: grid; gap: 10px; margin-top: 6px; }
+.echoform .erow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.echoform .erow .bk { min-width: 96px; }
+.echoform select { min-width: 150px; }
+.ehint { color: var(--muted); font-size: 12px; }
+.esubs { display: grid; gap: 8px; max-width: 460px; }
+.esub { display: grid; grid-template-columns: 1.6fr 1fr; gap: 8px; }
+.esub select { width: 100%; min-width: 0; }
+.eresult { display: grid; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); max-width: 560px; }
+.eres { display: flex; align-items: center; gap: 14px; }
+.egrade { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 12px; border: 2px solid currentColor; font: 800 28px "Roboto", sans-serif; }
+.eres.gS .egrade { color: var(--gold); background: rgba(240, 200, 110, .12); }
+.eres.gA .egrade { color: var(--teal); }
+.eres.gB .egrade { color: var(--text); }
+.eres.gC .egrade, .eres.gD .egrade { color: var(--red); }
+.escore b { display: block; font-size: 24px; color: #fff; }
+.escore span { color: var(--muted); font-size: 13px; }
+.erw { display: grid; grid-template-columns: 1.5fr 1.2fr auto 64px; gap: 10px; align-items: center; font-size: 13px; }
+.ebar { display: block; height: 6px; border-radius: 3px; background: rgba(242, 239, 230, .1); overflow: hidden; }
+.ebar b { display: block; height: 100%; background: var(--gold); }
+.ebar.mid b { background: #9a9ca4; }
+.ebar.bad b { background: var(--red); }
+.erw em { font-style: normal; font-weight: 700; color: #fff; text-align: right; }
+.etag { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; text-align: right; }
+.etag.good { color: var(--gold); } .etag.mid { color: var(--muted); } .etag.bad { color: var(--red); }
+.enote { font-size: 12.5px; color: var(--text); }
+.enote.good { color: var(--teal); } .enote.bad { color: var(--red); } .enote.dim { color: var(--muted); font-size: 11.5px; }
+
+/* ================= Countdown ================= */
+.cdstrip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0 0 16px; }
+.cd { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; border: 1px solid var(--line); background: rgba(14, 14, 18, .72); }
+.cdk { font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.cdv { font-size: 24px; font-weight: 700; color: var(--gold-l); letter-spacing: .02em; }
+.cds { font-size: 12.5px; color: var(--text); opacity: .85; }
+@media (max-width: 760px) { .cdstrip { grid-template-columns: 1fr; gap: 8px; } .cd { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; } .cds { flex-basis: 100%; } }
+
+/* ================= Backup ================= */
+.bkrow { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 6px; }
+.filebtn { cursor: pointer; }
+.note.good { color: var(--teal); } .note.bad { color: var(--red); }
+.echoform .erow select { width: auto; min-width: 180px; max-width: 320px; }

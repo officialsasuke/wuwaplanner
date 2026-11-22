@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/emblem.png">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
-<link rel="stylesheet" href="style.css?v=202611220040">
+<link rel="stylesheet" href="style.css?v=202611220135">
 </head>
 <body>
 <div class="bgimg" aria-hidden="true"></div>
@@ -27,7 +27,7 @@
     <button class="nav" data-page="resources"><img src="assets/ic_income.png" data-dark="assets/ic_income_dark.png" alt=""><span>Resources</span></button>
     <button class="nav" data-page="analysis"><img src="assets/ic_chart.png" data-dark="assets/ic_chart_dark.png" alt=""><span>Analysis</span></button>
     <button class="nav" data-page="teams"><img src="assets/ic_team.png" data-dark="assets/ic_team_dark.png" alt=""><span>Teams</span></button>
-    <button class="nav" data-page="builds"><img src="assets/ic_sword.png" data-dark="assets/ic_sword_dark.png" alt=""><span>Builds</span></button>
+    <button class="nav" data-page="builds"><img src="assets/ic_sword.png" data-dark="assets/ic_sword_dark.png" alt=""><span>Characters</span></button>
     <button class="nav" data-page="history"><img src="assets/ic_book.png" data-dark="assets/ic_book_dark.png" alt=""><span>History</span></button>
     <button class="nav" data-page="settings"><img src="assets/ic_settings.png" data-dark="assets/ic_settings_dark.png" alt=""><span>Settings</span></button>
   </nav>
@@ -76,6 +76,8 @@
           </div>
         </div>
       </div>
+
+      <div class="cdstrip" id="cdStrip"></div>
 
       <div class="tiles">
         <div class="panel tile">
@@ -198,6 +200,16 @@
           <div class="note" id="bgStat"></div>
           <div class="note">These settings are saved on this device only.</div>
         </div>
+        <div class="panel">
+          <h2>Backup</h2>
+          <div class="note">Save your roster, weapons, targets, resources and settings as a file, or restore them from a file. Useful before you clear your browser data, or to move to another device. The saved Convene link is never included.</div>
+          <div class="bkrow">
+            <button class="btn" id="bkExport"><img src="assets/ic_import.png" data-light="assets/ic_import.png" data-dark="assets/ic_import_dark.png" alt="">Download backup</button>
+            <label class="btn filebtn"><img src="assets/ic_folder.png" data-light="assets/ic_folder.png" data-dark="assets/ic_folder_dark.png" alt="">Restore from file<input type="file" id="bkFile" accept=".json,application/json" hidden></label>
+          </div>
+          <div class="note" id="bkMsg"></div>
+          <div class="bkrow" id="bkAct"></div>
+        </div>
       </div>
     </section>
 
@@ -271,6 +283,7 @@
             <div class="rtools-r">
               <input type="text" id="rosterSearch" placeholder="Search">
               <label class="chk"><input type="checkbox" id="ownedOnly"><i></i>Owned only</label>
+              <label class="chk"><input type="checkbox" id="favOnly"><i></i>Favorites</label>
             </div>
           </div>
           <div class="note">Click a card to mark it as owned. Set the sequence (S0 to S6) and the signature weapon (R1 to R5, or none) with the arrows.</div>
@@ -540,10 +553,10 @@
   </div>
 </div>
 
-<script src="data.js?v=202611220040"></script>
-<script src="calc.js?v=202611220040"></script>
-<script src="teams.js?v=202611220040"></script>
-<script src="builds.js?v=202611220040"></script>
-<script src="app.js?v=202611220040"></script>
+<script src="data.js?v=202611220135"></script>
+<script src="calc.js?v=202611220135"></script>
+<script src="teams.js?v=202611220135"></script>
+<script src="builds.js?v=202611220135"></script>
+<script src="app.js?v=202611220135"></script>
 </body>
 </html>

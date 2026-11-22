@@ -292,3 +292,79 @@ function weaponDmgPct(charName, bestName, name) {
   const ref = weaponDmgIndex(bw) * (bw.r === 5 ? 1 + DMG_MODEL.bisPremium : 1);
   return { pct: Math.round((weaponDmgIndex(w) / ref - 1) * 1000) / 10, tested: false };
 }
+
+/* ---------------------------------------------------------------- Echo check
+   Rule of thumb, not an official formula: every substat roll is compared with the best possible roll of that stat
+   (max roll values of the game) and weighted by how useful the stat is for this resonator (role, scaling stat). */
+const ECHO_SUBS = [
+  { k: "cr", n: "CRIT Rate", max: 10.5, u: "%" }, { k: "cd", n: "CRIT DMG", max: 21, u: "%" },
+  { k: "atkp", n: "ATK%", max: 11.6, u: "%" }, { k: "atk", n: "ATK (flat)", max: 60, u: "" },
+  { k: "hpp", n: "HP%", max: 11.6, u: "%" }, { k: "hp", n: "HP (flat)", max: 580, u: "" },
+  { k: "defp", n: "DEF%", max: 14.7, u: "%" }, { k: "def", n: "DEF (flat)", max: 70, u: "" },
+  { k: "er", n: "Energy Regen", max: 12.4, u: "%" },
+  { k: "basic", n: "Basic Attack DMG", max: 11.6, u: "%" }, { k: "heavy", n: "Heavy Attack DMG", max: 11.6, u: "%" },
+  { k: "skill", n: "Resonance Skill DMG", max: 11.6, u: "%" }, { k: "lib", n: "Resonance Liberation DMG", max: 11.6, u: "%" },
+];
+const ECHO_ROLLS = (() => {
+  const dmg = [6.4, 7.1, 7.9, 8.6, 9.4, 10.1, 10.9, 11.6];
+  return {
+    cr: [6.3, 6.9, 7.5, 8.1, 8.7, 9.3, 9.9, 10.5], cd: [12.6, 13.8, 15, 16.2, 17.4, 18.6, 19.8, 21],
+    atkp: dmg, hpp: dmg, basic: dmg, heavy: dmg, skill: dmg, lib: dmg,
+    defp: [8.1, 9, 10, 10.9, 11.8, 12.8, 13.8, 14.7], er: [6.8, 7.6, 8.4, 9.2, 10, 10.8, 11.6, 12.4],
+    atk: [30, 40, 50, 60], hp: [320, 360, 390, 430, 470, 510, 540, 580], def: [40, 50, 60, 70],
+  };
+})();
+const ECHO_MAINS = {
+  4: ["CRIT Rate", "CRIT DMG", "Healing Bonus", "ATK%", "HP%", "DEF%"],
+  3: ["Glacio DMG", "Fusion DMG", "Electro DMG", "Aero DMG", "Spectro DMG", "Havoc DMG", "Energy Regen", "ATK%", "HP%", "DEF%"],
+  1: ["ATK%", "HP%", "DEF%"],
+};
+const ECHO_DMG_TYPES = [["any", "Not sure"], ["basic", "Basic Attack"], ["heavy", "Heavy Attack"], ["skill", "Resonance Skill"], ["lib", "Resonance Liberation"]];
+
+function echoWeights(name, dmg) {
+  const c = RES_BY_NAME.get(name), b = CHAR_BUILDS.get(name);
+  const role = c ? c.role : "dps";
+  const ms1 = b ? b.ms[1] : "", ms2 = b ? b.ms[2] : "ATK%";
+  const sc = /^HP/i.test(ms2) ? "hp" : /^DEF/i.test(ms2) ? "def" : "atk";
+  const w = { cr: 0, cd: 0, atkp: 0, atk: 0, hpp: 0, hp: 0, defp: 0, def: 0, er: 0, basic: 0, heavy: 0, skill: 0, lib: 0 };
+  const crit = role === "dps" ? 1 : role === "sub" ? 0.8 : 0.15;
+  w.cr = crit; w.cd = crit;
+  const main = role === "heal" ? 0.85 : 0.65;
+  if (sc === "atk") { w.atkp = main; w.atk = main * 0.3; }
+  else if (sc === "hp") { w.hpp = main; w.hp = main * 0.3; }
+  else { w.defp = main; w.def = main * 0.3; }
+  w.er = role === "dps" ? 0.2 : role === "sub" ? 0.45 : 0.7;
+  if (/energy regen/i.test(ms1) && role !== "heal") w.er = Math.max(w.er, 0.4);
+  if (role !== "heal") {
+    const top = role === "dps" ? 0.55 : 0.4;
+    const keys = ["basic", "heavy", "skill", "lib"];
+    if (dmg && dmg !== "any") keys.forEach((k) => { w[k] = k === dmg ? top : 0.05; });
+    else keys.forEach((k) => { w[k] = top / 2.2; });
+  }
+  return w;
+}
+
+/* echo = { cost: 4|3|1, main: "CRIT Rate", dmg: "any"|"basic"|..., subs: [{ k, v }] } */
+function echoRate(name, echo) {
+  const b = CHAR_BUILDS.get(name), w = echoWeights(name, echo.dmg), c = RES_BY_NAME.get(name);
+  const seen = new Set(), rows = []; let dup = false;
+  for (const s of echo.subs) {
+    const sub = ECHO_SUBS.find((x) => x.k === s.k), v = +s.v;
+    if (!sub || !(v > 0)) continue;
+    if (seen.has(s.k)) { dup = true; continue; }
+    seen.add(s.k);
+    rows.push({ k: s.k, label: sub.n, v, unit: sub.u, q: Math.min(1, v / sub.max), w: w[s.k] });
+  }
+  const ideal = Object.values(w).sort((a, z) => z - a).slice(0, rows.length).reduce((a, z) => a + z, 0);
+  const got = rows.reduce((a, r) => a + r.w * r.q, 0);
+  const score = ideal > 0 ? Math.round((100 * got) / ideal) : 0;
+  const grades = [[70, "S", "Excellent. Level it up and keep it."], [55, "A", "Very good, worth leveling."], [40, "B", "Usable until something better drops."],
+    [25, "C", "Weak, only as a filler."], [0, "D", "Barely useful for this resonator."]];
+  const g = grades.find((x) => score >= x[0]);
+  const recText = b ? b.ms[{ 4: 0, 3: 1, 1: 2 }[echo.cost]] : "";
+  const rec = recText && recText !== "–" ? recText.split(/\s+or\s+|\s+and\s+|\s*&\s*/).map((x) => x.trim().toLowerCase()) : [];
+  const mainOk = !echo.main || !rec.length ? null : rec.includes(echo.main.toLowerCase());
+  const cr = rows.find((r) => r.k === "cr"), cd = rows.find((r) => r.k === "cd");
+  const cv = c && c.role !== "heal" && (cr || cd) ? 2 * (cr ? cr.v : 0) + (cd ? cd.v : 0) : null;
+  return { score, grade: g[1], text: g[2], rows, dup, mainOk, mainRec: recText, cv, n: rows.length };
+}
