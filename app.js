@@ -1239,45 +1239,6 @@ function toggleFav(kind, n) {
 }
 const favBtn = (kind, n, cls = "") => `<button class="fav${cls ? " " + cls : ""}${isFav(kind, n) ? " on" : ""}" data-fav="${kind}" data-n="${esc(n)}" title="${isFav(kind, n) ? "Remove from favorites" : "Add to favorites"}" aria-label="Favorite" aria-pressed="${isFav(kind, n)}">★</button>`;
 
-/* ---------------------------------------------------------------- Echo check (character page) */
-let echoSt = { cost: 4, main: "", dmg: "any", subs: [0, 1, 2, 3, 4].map(() => ({ k: "", v: "" })), open: false };
-function echoPanelHtml(c) {
-  return `<details class="bsec echochk" id="echoChk"${echoSt.open ? " open" : ""}>
-    <summary><span class="label">Echo check <em>rate an echo for ${esc(c.n)}</em></span></summary>
-    <div class="echoform" id="echoForm"></div></details>`;
-}
-function renderEcho(c) {
-  const box = $("#echoForm");
-  if (!box) return;
-  const st = echoSt;
-  if (!ECHO_MAINS[st.cost].includes(st.main)) st.main = "";
-  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(t)}</option>`;
-  const rec = CHAR_BUILDS.get(c.n).ms[{ 4: 0, 3: 1, 1: 2 }[st.cost]];
-  const subRows = st.subs.map((s, i) => `<div class="esub">
-      <select data-ek="${i}" aria-label="Substat ${i + 1}">${opt("", "Substat " + (i + 1), !s.k)}${ECHO_SUBS.map((x) => opt(x.k, x.n, s.k === x.k)).join("")}</select>
-      <select data-ev="${i}" aria-label="Roll ${i + 1}"${s.k ? "" : " disabled"}>${opt("", "Value", !s.v)}${s.k ? ECHO_ROLLS[s.k].map((v) => opt(v, v + ECHO_SUBS.find((x) => x.k === s.k).u, +s.v === v)).join("") : ""}</select>
-    </div>`).join("");
-  const r = echoRate(c.n, st);
-  const useTag = (w) => (w >= 0.5 ? ["good", "Useful"] : w >= 0.15 ? ["mid", "Minor"] : ["bad", "Wasted"]);
-  box.innerHTML = `
-    <div class="erow"><span class="bk">Cost</span><div class="seg">${[4, 3, 1].map((k) => `<button class="btn${st.cost === k ? " on" : ""}" data-ecost="${k}">${k}-cost</button>`).join("")}</div></div>
-    <div class="erow"><span class="bk">Main stat</span><select id="ecMain">${opt("", "Choose", !st.main)}${ECHO_MAINS[st.cost].map((m) => opt(m, m, st.main === m)).join("")}</select>
-      <span class="ehint">Recommended: ${esc(rec || "–")}</span></div>
-    <div class="esubs">${subRows}</div>
-    <div class="eresult">${r.n ? `
-      <div class="eres g${r.grade}"><div class="egrade">${r.grade}</div><div class="escore"><b>${r.score}%</b><span>${esc(r.text)}</span></div></div>
-      ${r.rows.map((x) => { const [cl, tx] = useTag(x.w); return `<div class="erw"><span>${esc(x.label)}</span><i class="ebar ${cl}"><b style="width:${Math.round(x.q * 100)}%"></b></i><em>${x.v}${x.unit}</em><span class="etag ${cl}">${tx}</span></div>`; }).join("")}
-      ${r.cv != null ? `<div class="enote">Crit Value (2 × CRIT Rate + CRIT DMG): <b>${r.cv.toFixed(1)}</b></div>` : ""}
-      ${r.mainOk === true ? `<div class="enote good">The main stat fits ${esc(c.n)}.</div>` : r.mainOk === false ? `<div class="enote bad">${esc(st.main)} is not a recommended ${st.cost}-cost main stat for ${esc(c.n)}. Recommended: ${esc(r.mainRec)}.</div>` : ""}
-      ${r.dup ? `<div class="enote bad">A substat can only appear once on an echo. The repeated row was ignored.</div>` : ""}` : `<div class="enote">Pick the substats of the echo to see its score.</div>`}
-      <div class="enote dim">The score compares your rolls with perfect rolls on the stats ${esc(c.n)} wants. It is a rule of thumb, not an official formula. With fewer than five substats it compares with the same number of perfect rolls.</div>
-    </div>`;
-  box.querySelectorAll("[data-ecost]").forEach((b) => b.onclick = () => { st.cost = +b.dataset.ecost; renderEcho(c); });
-  const m = $("#ecMain"); if (m) m.onchange = () => { st.main = m.value; renderEcho(c); };
-  box.querySelectorAll("[data-ek]").forEach((x) => x.onchange = () => { const s = st.subs[+x.dataset.ek]; s.k = x.value; s.v = ""; renderEcho(c); });
-  box.querySelectorAll("[data-ev]").forEach((x) => x.onchange = () => { st.subs[+x.dataset.ev].v = x.value; renderEcho(c); });
-}
-
 function renderBuilds() {
   const seg = $("#bElSeg");
   seg.innerHTML = elSegHtml(buildEl);
@@ -1342,10 +1303,13 @@ function renderBuilds() {
   };
   const statChips = (txt) => !txt || txt === "–" ? `<span class="chip none">none</span>`
     : txt.split(/\s+or\s+|\s*&\s*/).map((t) => { const ic = statIcon(t); return `<span class="chip">${ic ? `<img src="${ic}" alt="">` : ""}${esc(t)}</span>`; }).join(`<span class="orsep">or</span>`);
-  const setChips = (txt) => txt.split(/\s*\+\s*/).map((p) => {
+  const setChip = (p) => {
     const m = /^(\d)-pc\s+(.*)$/.exec(p);
-    return `<span class="chip set">${m ? `<em>${m[1]}</em>${esc(m[2])}` : esc(p)}</span>`;
-  }).join("");
+    const si = webImg("echosets", (m ? m[2] : p).replace(/\s*\(.*\)\s*$/, ""));
+    const icon = si ? `<img src="${si}" alt="" loading="lazy" onerror="this.remove()">` : "";
+    return `<span class="chip set">${icon}${m ? `<em>${m[1]}</em>${esc(m[2])}` : esc(p)}</span>`;
+  };
+  const setChips = (txt) => txt.split(/\s*\+\s*/).map((p) => p.split(/\s+or\s+/).map(setChip).join(`<span class="orsep">or</span>`)).join("");
 
   /* teams that use this resonator */
   const tierRank = (t) => parseFloat(t.tier.slice(1));
@@ -1401,7 +1365,6 @@ function renderBuilds() {
       <div class="brow"><span class="bk">4-cost</span><div>${statChips(b.ms[0])}</div></div>
       <div class="brow"><span class="bk">3-cost</span><div>${statChips(b.ms[1])}</div></div>
       <div class="brow"><span class="bk">1-cost</span><div>${statChips(b.ms[2])}</div></div></div>
-    ${echoPanelHtml(c)}
 
     ${asCarry.length ? `<div class="bsec"><div class="label">Best teams <em>${esc(c.n)} as the carry</em></div>${asCarry.slice(0, 4).map((t) => teamBlock(t)).join("")}</div>` : ""}
     ${asHelper.length ? `<div class="bsec"><div class="label">Used as support in</div>${asHelper.slice(0, 4).map((t) => teamBlock(t)).join("")}</div>` : ""}
@@ -1412,8 +1375,6 @@ function renderBuilds() {
   $("#bToWeapons").onclick = () => { showPage("teams"); setTeamTab("weapons"); };
   const at = $("#bAddTarget");
   if (at) at.onclick = () => { plan.goals.push({ type: "char", name: c.n }); save(); scheduleCalc(); renderBuilds(); };
-  renderEcho(c);
-  $("#echoChk").addEventListener("toggle", () => { echoSt.open = $("#echoChk").open; });
   $("#bSrc").innerHTML = `Build data from ${BUILD_INFO.sites.map((x) => `<a href="${x.url}" target="_blank" rel="noopener">${esc(x.label)}</a>`).join(" and ")}, version ${BUILD_INFO.version} (${BUILD_INFO.updated}). Community recommendations, not official.`;
 }
 

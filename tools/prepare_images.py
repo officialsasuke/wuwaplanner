@@ -12,6 +12,7 @@ Folder layout for the originals (the first run creates it for you):
     raw_images/resonators/   any file names: "Jinhsi.png", "T_IconRoleHead256_Jinhsi.png", "Jinhsi Splash Art.jpg" ...
     raw_images/weapons/      any file names: "Emerald of Genesis.png" -> emeraldofgenesis.png
     raw_images/currency/     "Astrite.png", "Lunite.png", "Radiant Tide.png", "Forging Tide.png"
+    raw_images/echosets/     echo set icons: "Moonlit Clouds.png", "Icon_Moonlit_Clouds.webp" -> moonlitclouds.png
 Files that are not in one of these folders are sorted automatically when they are a resonator or a
 currency; weapons always need the weapons folder (or --cat weapons).
 
@@ -43,7 +44,7 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parent.parent
 EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
-CATS = ("resonators", "weapons", "currency")
+CATS = ("resonators", "weapons", "currency", "echosets")
 ELEMENTS = ("aero", "electro", "havoc", "spectro")  # Rover variants
 CURRENCY = {  # keyword in the file name -> file name the site expects
     "astrite": "astrite",
@@ -65,6 +66,9 @@ NOISE = {
     "wiki", "new", "banner", "gacha", "weapon", "weapons", "item", "items", "tide", "tides", "png", "jpg",
     "webp", "copy", "final", "render", "sprite", "half", "bust", "wallpaper", "the",
 }
+# echo set icons: only strip words that describe the file ("Set Moonlit Clouds Icon.png")
+ECHO_NOISE = {"t", "ui", "icon", "icons", "set", "sets", "sonata", "echo", "png", "jpg", "webp", "copy", "final",
+              "render", "sprite", "hd", "wiki", "large", "small"}
 # weapon names often contain "The", "Tide", "Art" ... so only strip words that clearly describe the file
 WEAPON_NOISE = {"t", "ui", "icon", "icons", "splash", "weapon", "weapons", "png", "jpg", "webp", "copy", "final",
                 "render", "sprite", "hd", "wiki", "large", "small"}
@@ -241,6 +245,7 @@ def main():
     ap.add_argument("--pick", choices=("left", "right"), default="left",
                     help="Rover picture with two figures: keep the left (male) or right (female) one (default left)")
     ap.add_argument("--weapon-size", type=int, default=256, help="weapon icon box in px (default 256)")
+    ap.add_argument("--echoset-size", type=int, default=128, help="echo set icon box in px (default 128)")
     ap.add_argument("--currency-size", type=int, default=128, help="currency icon box in px (default 128)")
     ap.add_argument("--dry-run", action="store_true", help="only show what would happen")
     args = ap.parse_args()
@@ -250,7 +255,7 @@ def main():
         if Path(args.source) == ROOT / "raw_images":
             for c in CATS:
                 (src / c).mkdir(parents=True, exist_ok=True)
-            print(f"Created {src} with the folders resonators / weapons / currency.")
+            print(f"Created {src} with the folders resonators / weapons / currency / echosets.")
             print("Put your original images in there and run this script again.")
             return 0
         print(f"Folder not found: {src}")
@@ -288,6 +293,9 @@ def main():
             hit = next((v for k, v in CURRENCY.items() if k in joined), None)
             if hit:
                 key, how, cat = hit, "exact", "currency"
+        if not key and cat == "echosets":
+            ej = "".join(tokens_of(p.stem, ECHO_NOISE, keep_digits=True))
+            key, how = (ej, "exact") if ej else (None, "empty name")
         if not key and cat == "weapons":
             wj = "".join(tokens_of(p.stem, WEAPON_NOISE, keep_digits=True))
             key, how = (wj, "exact") if wj else (None, "empty name")
@@ -338,7 +346,7 @@ def main():
                         two_figs.append(p)
                 im = make_resonator(im, args.width, args.anchor_x, args.anchor_y)
             else:
-                im = make_icon(im, args.weapon_size if cat == "weapons" else args.currency_size)
+                im = make_icon(im, {"weapons": args.weapon_size, "echosets": args.echoset_size}.get(cat, args.currency_size))
             dest.parent.mkdir(parents=True, exist_ok=True)
             im.save(dest, "PNG", optimize=True, compress_level=9)
             total += dest.stat().st_size

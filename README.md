@@ -29,7 +29,7 @@ To update later, upload the changed files again in the same way.
 
 ## Images
 
-Without images the cards show silhouettes. You can add PNGs to `images/resonators`, `images/weapons` and `images/currency`.
+Without images the cards show silhouettes. You can add PNGs to `images/resonators`, `images/weapons`, `images/currency` and `images/echosets` (echo set icons shown next to the sets on the character page).
 The file names are listed in the `README.md` inside each folder (lower case, letters and digits only, e.g. `yangyangxuanling.png`).
 Only upload images you are allowed to publish.
 
@@ -37,7 +37,7 @@ Only upload images you are allowed to publish.
 
 **Rover:** one picture is enough. Name it `Rover` (or put it in `raw_images/resonators` as `Rover.png`). The site uses it for Rover (Aero / Electro / Havoc / Spectro) and marks each one with its element icon and colour. A picture with a Rover for every element (`roveraero.png`, ...) still wins if you add it.
 
-1. Run it once. It creates `raw_images/resonators`, `raw_images/weapons` and `raw_images/currency`.
+1. Run it once. It creates `raw_images/resonators`, `raw_images/weapons`, `raw_images/currency` and `raw_images/echosets`.
 2. Put your original files in there, any file names ("Jinhsi.png", "Jinhsi Splash Art.jpg" ...).
 3. Run it again. The finished files (300x400 px for resonators, small icons for the rest) land in `images/`, and it lists everything it could not recognise or that is still missing.
 
