@@ -1263,8 +1263,6 @@ function renderEcho(c) {
     <div class="erow"><span class="bk">Cost</span><div class="seg">${[4, 3, 1].map((k) => `<button class="btn${st.cost === k ? " on" : ""}" data-ecost="${k}">${k}-cost</button>`).join("")}</div></div>
     <div class="erow"><span class="bk">Main stat</span><select id="ecMain">${opt("", "Choose", !st.main)}${ECHO_MAINS[st.cost].map((m) => opt(m, m, st.main === m)).join("")}</select>
       <span class="ehint">Recommended: ${esc(rec || "–")}</span></div>
-    ${c.role === "heal" ? "" : `<div class="erow"><span class="bk">Main damage</span><select id="ecDmg">${ECHO_DMG_TYPES.map(([k, t]) => opt(k, t, st.dmg === k)).join("")}</select>
-      <span class="ehint">Which attack does most of ${esc(c.n)}'s damage</span></div>`}
     <div class="esubs">${subRows}</div>
     <div class="eresult">${r.n ? `
       <div class="eres g${r.grade}"><div class="egrade">${r.grade}</div><div class="escore"><b>${r.score}%</b><span>${esc(r.text)}</span></div></div>
@@ -1276,7 +1274,6 @@ function renderEcho(c) {
     </div>`;
   box.querySelectorAll("[data-ecost]").forEach((b) => b.onclick = () => { st.cost = +b.dataset.ecost; renderEcho(c); });
   const m = $("#ecMain"); if (m) m.onchange = () => { st.main = m.value; renderEcho(c); };
-  const d = $("#ecDmg"); if (d) d.onchange = () => { st.dmg = d.value; renderEcho(c); };
   box.querySelectorAll("[data-ek]").forEach((x) => x.onchange = () => { const s = st.subs[+x.dataset.ek]; s.k = x.value; s.v = ""; renderEcho(c); });
   box.querySelectorAll("[data-ev]").forEach((x) => x.onchange = () => { st.subs[+x.dataset.ev].v = x.value; renderEcho(c); });
 }
