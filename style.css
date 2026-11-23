@@ -32,6 +32,13 @@ body::before { content: ""; position: fixed; inset: 0; background: radial-gradie
 .bgimg { position: fixed; inset: -4%; z-index: -2; pointer-events: none;
   background: url("assets/bg.png") center top / cover no-repeat; }
 
+/* the sitting figure: a still copy for when the live scene is off; while it runs, the canvas draws her (app.js) */
+.ocfig { position: fixed; right: 0; bottom: 0; width: max(300px, min(62vh, 40vw)); aspect-ratio: 1; z-index: -2; pointer-events: none;
+  background: url("assets/oc_sitting.webp") right bottom / contain no-repeat; opacity: .45;
+  transform: translateY(23%); }  /* only down to just below her lower foot */
+html.bganim .ocfig, html.nooc .ocfig { display: none; }
+@media (max-width: 699px) { .ocfig { width: min(90vw, 46vh); opacity: .24; } }
+
 #bgfx { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
 body::before { z-index: -1; }
 /* on phones 100vh changes while the address bar slides; the large viewport height (lvh) does not */

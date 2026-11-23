@@ -2340,6 +2340,192 @@ init();
     sparks = [];
     for (let i = 0; i < Math.round(Math.min(40, w * h / 40000) * (tier ? .5 : 1)); i++) sparks.push(spark({}, true));
   }
+  /* ---- the sitting figure (OC): gold line art at the bottom right.
+     She is cut into sprites (tools/prepare_oc.py): the tail sways, the feet move now and then,
+     the orb above her hand is drawn live and spins. She also breathes, catches the light and reacts to the pulses. ---- */
+  const OKEY = "wuwaOc";
+  let ocOn = store.get(OKEY) !== "off";
+  root.classList.toggle("nooc", !ocOn);
+  const OC_N = 860, OC_CUT = .77;                       // picture size; part above the screen edge: down to just below her lower foot
+  // sprite offsets in the 860 picture (printed by prepare_oc.py); px/py = pivot of a foot
+  const OC_PARTS = { base: { x: 0, y: 0 }, tail: { x: 6, y: 117 }, foot1: { x: 97, y: 442, px: 192, py: 476 }, foot2: { x: 167, y: 573, px: 276, py: 610 } };
+  const TAIL_ROOT = 425, TAIL_TOP = 117;
+  const ocImg = {};
+  let ocLoaded = 0;
+  for (const k in OC_PARTS) {
+    const im = new Image();
+    im.onload = () => { if (++ocLoaded === 4 && w) ocLayout(); };
+    im.src = "assets/oc_" + k + ".webp";
+    ocImg[k] = im;
+  }
+  let ocBox = null, ocSpr = null, ocT = 0, ocGlow = 0, ocWait = 5, ocSw = -1, motes = [];
+  // the occasional moves: every part waits a random time, then plays one short motion
+  const ocAct = { tail: { wait: 3, p: -1, dur: 2.8, next: [7, 13] }, foot1: { wait: 6, p: -1, dur: 1.9, next: [6, 11] }, foot2: { wait: 10, p: -1, dur: 1.6, next: [9, 15] } };
+  function ocLayout() {
+    const small = w < 700;
+    const S = Math.round(small ? Math.min(w * .9, h * .46) : Math.max(300, Math.min(h * .62, w * .4)));
+    ocBox = { x: w - S * .97, y: h - S * OC_CUT, s: S, k: S / OC_N, base: small ? .26 : .5 };
+    if (ocLoaded < 4) return;
+    // pre-scale every sprite once per size, so a frame only copies pixels
+    if (!ocSpr || ocSpr.S !== S || ocSpr.dpr !== dpr) {
+      ocSpr = { S, dpr };
+      for (const k in OC_PARTS) {
+        const im = ocImg[k], c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(im.naturalWidth * ocBox.k * dpr)); c.height = Math.max(1, Math.round(im.naturalHeight * ocBox.k * dpr));
+        const c2 = c.getContext("2d"); c2.imageSmoothingQuality = "high"; c2.drawImage(im, 0, 0, c.width, c.height);
+        ocSpr[k] = { cv: c, x: OC_PARTS[k].x * ocBox.k, y: OC_PARTS[k].y * ocBox.k, w: im.naturalWidth * ocBox.k, h: im.naturalHeight * ocBox.k };
+      }
+    }
+    motes = [];
+    for (let i = 0; i < (tier ? 4 : 8); i++) motes.push(mote({}, true));
+  }
+  function mote(m, anyAge) {
+    const b = ocBox;
+    m.x = b.x + b.s * rnd(.12, .95); m.y = b.y + b.s * rnd(.42, OC_CUT); m.v = rnd(5, 13); m.ph = rnd(0, TAU);
+    m.life = rnd(6, 10); m.age = anyAge ? rnd(0, m.life) : 0; m.s = rnd(1.1, 2.2);
+    return m;
+  }
+  const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+  function bandPath(cx, cy, off, bw, L, ang) {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    ctx.beginPath();
+    [[off - bw / 2, -L], [off + bw / 2, -L], [off + bw / 2, L], [off - bw / 2, L]].forEach(([u, v], i) => {
+      const X = cx + u * c - v * s, Y = cy + u * s + v * c;
+      if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+    });
+    ctx.closePath();
+  }
+  // a motion that swings out and settles: 0 at the start and the end
+  const swing = (p, waves) => Math.sin(Math.PI * p) * Math.sin(TAU * waves * p);
+  function ocStep(dt) {
+    for (const k in ocAct) {
+      const a = ocAct[k];
+      if (a.p < 0) { a.wait -= dt; if (a.wait <= 0) a.p = 0; }
+      else { a.p += dt / a.dur; if (a.p >= 1) { a.p = -1; a.wait = rnd(a.next[0], a.next[1]); } }
+    }
+  }
+  const actP = (k) => ocAct[k].p < 0 ? 0 : ocAct[k].p;
+  function ocFoot(name, ang) {
+    const s = ocSpr[name], P = OC_PARTS[name], k = ocBox.k;
+    ctx.save();
+    ctx.translate(P.px * k, P.py * k); ctx.rotate(ang); ctx.translate(-P.px * k, -P.py * k);
+    ctx.drawImage(s.cv, s.x, s.y, s.w, s.h);
+    ctx.restore();
+  }
+  function ocTail(bend) {
+    // drawn in thin rows; the higher a row (towards the tip), the further it swings
+    const s = ocSpr.tail, k = ocBox.k, rows = Math.max(8, Math.round(s.h / 5)), rh = s.h / rows, sh = s.cv.height / rows;
+    for (let i = 0; i < rows; i++) {
+      const yImg = TAIL_TOP + (i + .5) * rh / k;
+      const f = Math.pow(Math.max(0, Math.min(1, (TAIL_ROOT - yImg) / (TAIL_ROOT - TAIL_TOP))), 1.6);
+      ctx.drawImage(s.cv, 0, i * sh, s.cv.width, sh + 1, s.x + bend * f * k, s.y + i * rh, s.w, rh + 1 / dpr);
+    }
+  }
+  const ORB_COL = "rgb(240,204,132)";
+  function ocRing(cx, cy, rx, ry, tilt, spin, gaps, lw) {
+    // an ellipse with gaps that run around it, so the spin is visible; the far half is dimmer
+    const n = 56, ct = Math.cos(tilt), st = Math.sin(tilt), per = TAU / gaps, a0 = ctx.globalAlpha;
+    for (const back of [true, false]) {
+      ctx.globalAlpha = a0 * (back ? .45 : 1);
+      ctx.lineWidth = lw; ctx.beginPath();
+      let pen = false;
+      for (let i = 0; i <= n; i++) {
+        const th = i / n * TAU, on = ((th - spin) % per + per) % per < per * .78 && (Math.sin(th) < 0) === back;
+        const x = Math.cos(th) * rx, y = Math.sin(th) * ry, X = cx + x * ct - y * st, Y = cy + x * st + y * ct;
+        if (on) { if (pen) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); pen = true; } else pen = false;
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = a0;
+  }
+  function ocCube(x, y, s, rot, a) {
+    const a0 = ctx.globalAlpha, d = s * .35;
+    ctx.globalAlpha = a0 * a;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.rect(-s / 2, -s / 2, s, s); ctx.rect(-s / 2 + d, -s / 2 - d, s, s);
+    for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { ctx.moveTo(u * s / 2, v * s / 2); ctx.lineTo(u * s / 2 + d, v * s / 2 - d); }
+    ctx.stroke(); ctx.restore();
+    ctx.globalAlpha = a0;
+  }
+  function ocOrb() {
+    const k = ocBox.k, cx = 352 * k, cy = (136 + Math.sin(T * 1.2) * 2.5) * k;   // floats a little above her hand
+    ctx.save();
+    ctx.strokeStyle = ORB_COL; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    const a0 = ctx.globalAlpha;
+    // soft light in the middle
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 46 * k);
+    g.addColorStop(0, `rgba(${GOLD},.35)`); g.addColorStop(1, `rgba(${GOLD},0)`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 46 * k, 0, TAU); ctx.fill();
+    // three rings: a wide flat one, a smaller one turning the other way, one that slowly tips over
+    ocRing(cx, cy, 90 * k, 17 * k, -.04, T * .9, 2, 2.4 * k);
+    ocRing(cx, cy + 2 * k, 66 * k, 12 * k, .06, -T * 1.4, 3, 1.8 * k);
+    ocRing(cx, cy, 48 * k, (14 + 9 * Math.sin(T * .5)) * k, .35 * Math.sin(T * .37), T * 1.1, 4, 1.5 * k);
+    // small cubes circling above the rings, the far ones dimmer
+    ctx.lineWidth = 1.5 * k;
+    for (let i = 0; i < 3; i++) {
+      const an = T * .7 + i * TAU / 3, z = Math.sin(an);
+      ocCube(cx + Math.cos(an) * 24 * k, cy - (30 + 7 * i + 3 * Math.sin(T * 1.6 + i)) * k + z * 4 * k, (10 + 2 * i) * k * (1 + z * .12), T * (.6 + .25 * i) + i, .55 + .45 * (z + 1) / 2);
+    }
+    // the bright core
+    ctx.fillStyle = ORB_COL; ctx.globalAlpha = a0 * (.7 + .3 * Math.sin(T * 2.4));
+    ctx.beginPath(); ctx.arc(cx, cy, 2.4 * k + 1, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  function ocFigure(dx, dy, f) {
+    // everything in figure space: 0..S, scaled by the breathing
+    ctx.save(); ctx.translate(dx, dy); ctx.scale(f, f);
+    const b = ocSpr.base; ctx.drawImage(b.cv, 0, 0, b.w, b.h);
+    ocTail(Math.sin(T * .55) * 2.2 + 12 * swing(actP("tail"), 1.6));
+    ocFoot("foot1", .012 * Math.sin(T * .8) + .075 * swing(actP("foot1"), 1.5));
+    ocFoot("foot2", .006 * Math.sin(T * .7 + 1) - .06 * swing(actP("foot2"), 1));
+    ocOrb();
+    ctx.restore();
+  }
+  function drawOc(dt) {
+    if (!ocOn || ocLoaded < 4 || !ocBox || !ocSpr) return;
+    const b = ocBox, S = b.s;
+    ocT += dt;
+    ocGlow = Math.max(0, ocGlow - dt * .45);
+    ocStep(dt);
+    const reveal = smooth(ocT / 3);                       // fades in from the ground up when the page opens
+    const br = Math.sin(T * TAU / 6.5);                    // slow breathing
+    const sc = 1 + .006 * br;
+    const ox = -px * 10, oy = -py * 6 - br * 1.2;          // a little parallax, opposite to the rings
+    const dx = b.x + ox + S * (1 - sc) * .6, dy = b.y + oy + S * (1 - sc), ds = S * sc;
+    ctx.save();
+    if (reveal < 1) { ctx.beginPath(); ctx.rect(0, b.y + S * OC_CUT * (1 - reveal) - 40, w, h); ctx.clip(); }
+    ctx.globalAlpha = b.base * (1 + ocGlow) * (.35 + .65 * reveal);
+    ocFigure(dx, dy, sc);
+    ctx.restore();
+    // every 10-15 s a soft band of light runs over her lines
+    if (ocSw < 0) { ocWait -= dt; if (ocWait <= 0) ocSw = 0; }
+    else {
+      ocSw += dt / 2.8;
+      if (ocSw >= 1) { ocSw = -1; ocWait = rnd(10, 15); }
+      else {
+        const cx = dx + ds * .5, cy = dy + ds * .5, off = (ocSw * 1.6 - .8) * ds, env = Math.sin(ocSw * Math.PI);
+        ctx.save(); ctx.globalCompositeOperation = "lighter";
+        for (const [k, a] of [[.34, .16], [.18, .2], [.07, .22]]) {
+          ctx.save(); bandPath(cx, cy, off, ds * k, ds, .55); ctx.clip();
+          ctx.globalAlpha = a * env; ocFigure(dx, dy, sc); ctx.restore();
+        }
+        ctx.restore();
+      }
+    }
+    // a few motes of light rising around her
+    ctx.fillStyle = GOLD_FILL;
+    for (const m of motes) {
+      m.age += dt; if (m.age > m.life) mote(m, false);
+      m.y -= m.v * dt; const x = m.x + Math.sin(m.ph + m.age * .9) * 6 + ox;
+      ctx.globalAlpha = .7 * Math.sin(Math.PI * m.age / m.life) * reveal;
+      ctx.beginPath(); ctx.arc(x, m.y + oy, m.s, 0, TAU); ctx.fill();
+      ctx.globalAlpha *= .18; ctx.beginPath(); ctx.arc(x, m.y + oy, m.s * 3.5, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  const waveMask = (x) => !ocOn || !ocBox ? 1 : 1 - .75 * smooth((x - ocBox.x - ocBox.s * .1) / (ocBox.s * .3));
+
   function spark(p, anyY) {
     p.x = rnd(0, w); p.y = anyY ? rnd(0, h) : h + 8; p.s = rnd(1.4, 3.4); p.v = rnd(8, 24); p.dx = rnd(-5, 5); p.a = rnd(.3, .85); p.tw = rnd(0, TAU);
     return p;
@@ -2355,6 +2541,7 @@ init();
     cv.style.width = w + "px"; cv.style.height = h + "px";   // same size as the buffer, never the changing 100vh
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     build();
+    ocLayout();
   }
 
   /* Rings are huge; most of each arc lies outside the window. Only the parts on screen are stroked. */
@@ -2422,7 +2609,7 @@ init();
 
   function drawPulses(dt, cx, cy) {
     nextPulse -= dt;
-    if (nextPulse <= 0) { pulses.push({ r: .03, a: .8 }); nextPulse = rnd(4.5, 6.5); }
+    if (nextPulse <= 0) { pulses.push({ r: .03, a: .8 }); nextPulse = rnd(4.5, 6.5); ocGlow = .3; }
     for (const p of pulses) {
       p.r += dt * .16; p.a -= dt * .11;
       if (p.a <= 0) continue;
@@ -2449,17 +2636,17 @@ init();
     ctx.beginPath();
     for (let x = 0; x < w; x += step) {
       if (Math.abs(x - sweep) < hotW) continue;
-      const a = colAmp(x, maxH); ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a);
+      const a = colAmp(x, maxH) * waveMask(x); ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a);
     }
     ctx.stroke();
     ctx.strokeStyle = `rgba(${GOLD},.8)`;
     ctx.beginPath();
     const x1 = Math.max(0, Math.ceil((sweep - hotW) / step) * step);
-    for (let x = x1; x < w && x < sweep + hotW; x += step) { const a = colAmp(x, maxH) * 1.1; ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a); }
+    for (let x = x1; x < w && x < sweep + hotW; x += step) { const a = colAmp(x, maxH) * 1.1 * waveMask(x); ctx.moveTo(x, y0 - a); ctx.lineTo(x, y0 + a); }
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.strokeStyle = `rgba(${INK},.18)`; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(ocOn && ocBox ? ocBox.x + ocBox.s * .3 : w, y0); ctx.stroke();
   }
 
   function drawStars(dt) {
@@ -2518,6 +2705,7 @@ init();
     const cx = w * .8 + px * 18, cy = h * .18 + py * 12;
     ctx.clearRect(0, 0, w, h);
     drawStars(dt);
+    drawOc(dt);
     drawRings(cx, cy);
     drawPulses(dt, cx, cy);
     drawWave();
@@ -2570,6 +2758,8 @@ init();
     get fps() { return fpsNow; },
     stat,
     setFps(v) { cap = +v || 0; store.set(FKEY, cap ? String(cap) : "auto"); resetGov(); },
+    setOc(v) { ocOn = v !== "off"; store.set(OKEY, ocOn ? "on" : "off"); root.classList.toggle("nooc", !ocOn); ocT = 0; },
+    get oc() { return ocOn; },
   };
 
   addEventListener("resize", () => { if (running) resize(false); });
@@ -2583,6 +2773,8 @@ init();
   if (sel) sel.addEventListener("change", () => window.wuwaBg.set(sel.value));
   const fsel = document.getElementById("bgFps");
   if (fsel) { fsel.value = cap ? String(cap) : "auto"; fsel.addEventListener("change", () => window.wuwaBg.setFps(fsel.value)); }
+  const osel = document.getElementById("ocMode");
+  if (osel) { osel.value = ocOn ? "on" : "off"; osel.addEventListener("change", () => window.wuwaBg.setOc(osel.value)); }
   apply();
 })();
 
